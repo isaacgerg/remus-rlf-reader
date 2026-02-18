@@ -1,0 +1,627 @@
+================================================================================
+  REMUS RLF (Run Log File) Binary Format Specification
+  Empirically Derived from REMUS-100 AUV Mission Data
+================================================================================
+
+  Vehicle:   REMUS-100 "Aukai" (SN 256, Hydroid Inc.)
+  Dataset:   Makua Beach, O'ahu, Hawaii — Sep 6-8, 2013
+  Source:    doi:10.6075/J09P3042 (UCSD Library Digital Collections)
+  Reference: Amador et al. (2020), JGR Oceans, 10.1029/2020JC016264
+  Parser:    remus_rlf.py (companion Python module)
+
+  DISCLAIMER: All field offsets, scaling factors, and physical interpretations
+  were derived empirically by binary pattern analysis. No official Hydroid or
+  Kongsberg documentation was used. Decoded values should be verified against
+  independent measurements before use in analysis.
+
+
+1. FILE STRUCTURE
+================================================================================
+
+An RLF file is a flat sequence of variable-length binary records. There is no
+file header or footer. Records are packed back-to-back with no padding.
+
+Each record begins with an 8-byte header:
+
+    Offset  Size  Type        Field
+    ------  ----  ----------  ------------------------------------------
+    0       2     uint8[2]    Magic bytes: 0xEB 0x90
+    2       2     uint16 LE   Checksum
+    4       2     uint16 LE   Record type identifier
+    6       2     uint16 LE   Payload length in bytes (N)
+    8       N     raw bytes   Payload data (sensor-specific structure)
+
+All multi-byte integers and floats are little-endian (LE).
+
+To scan the file, search for the 0xEB90 magic, read the header, extract N
+payload bytes, then advance to the next record at offset + 8 + N.
+
+Typical file sizes: 30-35 MB per ~5-hour mission, containing 600K-640K
+total records across all types.
+
+
+2. TIMESTAMP FORMAT
+================================================================================
+
+Most record payloads contain a uint32 timestamp at payload byte offset 16.
+
+  Encoding:
+    - Lower 31 bits: milliseconds since midnight UTC
+    - Bit 31 (MSB): flag bit (purpose not fully determined; mask with
+      0x7FFFFFFF to extract the time value)
+
+  Midnight rollover:
+    Missions spanning midnight UTC show a large negative jump (~86,400,000 ms)
+    in the timestamp sequence. To reconstruct continuous time, detect jumps
+    where delta < -1,000,000 ms and add 86,400,000 ms to all subsequent
+    values.
+
+  Sample rates:
+    Navigation / YSI CTD:  ~18 Hz  (~55 ms between records)
+    Wetlabs ECO:           ~1 Hz
+    ADCP/DVL:              ~0.67 Hz original, ~0.35 Hz in RLF
+    Seabird CTD:           ~0.3 Hz
+    Sidescan:              ~1.3 Hz (uses different timing; see Section 4.5)
+
+  Note: The Acoustic Nav Fix record (0x041f) uses a different timestamp
+  encoding — a 6-byte wall-clock UTC timestamp (YY/MM/DD/HH/MM/SS) stored
+  at payload offsets 46-51. See Section 4.10.
+
+
+3. RECORD TYPE SUMMARY
+================================================================================
+
+  HIGH-RATE SENSOR DATA
+  Type     Dec   Name                   Bytes  Rate       Records/Mission
+  ------   ----  --------------------   -----  ---------  ---------------
+  0x044e   1102  Navigation              46    ~18 Hz     ~247K-294K
+  0x041d   1053  YSI CTD                 40    ~18 Hz     ~232K-276K
+  0x03f7   1015  Sidescan Metadata       55    ~1.3 Hz    ~17K-20K
+  0x03e8   1000  ADCP/DVL               155    ~0.35 Hz   ~15K-17K
+  0x043e   1086  Wetlabs ECO BB2F        57    ~1 Hz      ~13K-16K
+  0x040a   1034  Seabird CTD (SBE49)     32    ~0.3 Hz    ~3.6K-4.3K
+  0x03f9   1017  GPS / Acoustic Nav      59    varies     ~2.8K-3.3K
+  0x0424   1060  Acoustic Modem Log      36    ~0.16 Hz   ~2.2K-2.4K
+  0x041a   1050  Nav/Acoustic            57    ~0.15 Hz   ~1.9K-2.1K
+  0x041f   1055  Acoustic Nav Fix       126    ~1/4 min   ~114/day
+  0x0412   1042  Battery Status         139    ~1/8 min   ~40/day
+  0x0413   1043  Battery Cell Data       52    ~1/8 min   ~40/day
+
+  MISSION AND CONFIGURATION (low frequency, logged at startup)
+  Type     Dec   Name                   Bytes  Records/Mission
+  ------   ----  --------------------   -----  ---------------
+  0x03f4   1012  Vehicle Name            35    10
+  0x040d   1037  Vehicle Info            31    ~198
+  0x0416   1046  Manufacturer Info      108    10
+  0x03ee   1006  Mission Modes           21    ~200
+  0x03f0   1008  Mission Legs            48    ~60
+  0x0427   1063  Waypoints               31    ~50
+  0x03fc   1020  Sensor Names            13    ~90
+  0x0407   1031  Sensor Types            23    ~150
+  0x040c   1036  Sensor Display Config   28    10
+  0x041c   1052  Data Channels           24    ~260
+  0x043d   1085  ECO Calibration         46    ~80
+
+  UNKNOWN / UNDECODED RECORD TYPES
+  Type     Dec   Bytes  Count/Day  Notes
+  ------   ----  -----  ---------  ------------------------------------------
+  0x03f1   1009   53     ~454      Dense binary; structure unclear
+  0x040e   1038   48     ~267      f32@8 ≈ 30°C (housing temp?); rest unknown
+  0x0402   1026   13     ~864      First 4 bytes constant; remainder unknown
+  0x0415   1045   48     ~198      Round-robin counter 1-5; floats 0-360 range
+                                   (possibly fin angles or control surface data)
+  0x040b   1035   60     ~71       Mostly zeros with sparse structured bytes
+  0x0408   1032    6     ~37       6-byte records with minimal variation
+  0x0446   1094    4     ~10       Constant 01 00 00 00 — flag or mode marker
+  0x03ef   1007    0     ~9        Empty payload — event marker or heartbeat
+
+
+4. RECORD TYPE FIELD SPECIFICATIONS
+================================================================================
+
+All offsets below are relative to the start of the PAYLOAD (after the 8-byte
+record header). Field names marked with (?) are tentative assignments.
+
+
+4.1  Navigation — Type 0x044e (1102), 46 bytes
+--------------------------------------------------------------------------------
+
+The highest-rate record, providing vehicle position and flight state at ~18 Hz.
+
+  Offset  Size  Type        Field               Units / Notes
+  ------  ----  ----------  ------------------  ----------------------------
+  0       8     float64 LE  Latitude            degrees N
+  8       8     float64 LE  Longitude           degrees E (negative = W)
+  16      4     uint32 LE   Timestamp           ms since midnight UTC
+  20      4     float32 LE  Speed               m/s (ground speed)
+  24      2     uint16 LE   Altitude            m above bottom (integer)
+  26      8     —           Undecoded           (bearing/heading related)
+  34      4     float32 LE  Vehicle depth       m below sea surface
+  38      4     —           Undecoded           (constant-like field)
+  42      4     float32 LE  Pitch               degrees
+
+  Notes:
+  - Altitude at offset 24 is often saturated at the Imagenex 852 altimeter
+    max range setting (10 m per config). When the vehicle is more than 10 m
+    above the bottom, this field reads the max range value, not true altitude.
+  - Lat/Lon use float64 (double) precision (~1 cm resolution).
+  - Observed ranges: lat 21.50-21.52°N, lon -158.24 to -158.23°W
+    (Makua Beach, O'ahu, Hawaii).
+
+
+4.2  YSI CTD — Type 0x041d (1053), 40 bytes
+--------------------------------------------------------------------------------
+
+High-rate CTD data from the onboard YSI sensor.
+
+  Offset  Size  Type        Field               Units / Notes
+  ------  ----  ----------  ------------------  ----------------------------
+  0       8     float64 LE  Latitude            degrees N
+  8       8     float64 LE  Longitude           degrees E
+  16      4     uint32 LE   Timestamp           ms since midnight UTC
+  20      4     —           Undecoded           (padding or flag)
+  24      4     float32 LE  Conductivity        mS/cm
+  28      4     float32 LE  Temperature         degrees C
+  32      4     float32 LE  Salinity            PSU (Practical Salinity Units)
+  36      4     float32 LE  Speed of Sound      m/s
+
+  Typical values (tropical seawater, Makua Beach):
+    Conductivity:    ~54-56 mS/cm
+    Temperature:     ~25-28 °C
+    Salinity:        ~33-37 PSU
+    Speed of Sound:  ~1537-1542 m/s
+
+  Verification: Speed of Sound matches UNESCO formula prediction
+    (T=27.3°C, S=35.3 PSU → predicted 1540.0 m/s, observed mean 1540.2 m/s).
+
+
+4.3  Seabird CTD / SBE49 — Type 0x040a (1034), 32 bytes
+--------------------------------------------------------------------------------
+
+Lower-rate CTD from the Seabird SBE49 sensor. Uses float32 (not float64)
+for position, giving reduced (~10 m) spatial precision.
+
+  Offset  Size  Type        Field               Units / Notes
+  ------  ----  ----------  ------------------  ----------------------------
+  0       4     float32 LE  Latitude            degrees N (reduced precision)
+  4       4     float32 LE  Longitude           degrees E (reduced precision)
+  8       4     uint32 LE   Timestamp           ms since midnight UTC
+  12      4     float32 LE  Altitude (?)        m above bottom (tentative)
+  16      4     float32 LE  Conductivity        mS/cm
+  20      4     float32 LE  Temperature         degrees C
+  24      4     float32 LE  Salinity            PSU
+  28      4     float32 LE  Speed of Sound      m/s
+
+  Notes:
+  - Salinity from SBE49 (mean ~34.0 PSU) reads slightly lower than the YSI
+    (mean ~35.3 PSU), likely due to different calibration.
+  - Speed of Sound: SBE49 mean ~1539 m/s vs YSI mean ~1540 m/s.
+
+
+4.4  ADCP / DVL — Type 0x03e8 (1000), 155 bytes
+--------------------------------------------------------------------------------
+
+Data from the onboard RDI 1200 kHz Doppler Velocity Log, which has upward-
+and downward-looking transducers configured to sample water velocities in
+1 m bins starting at 1 m above and below the vehicle depth (Amador et al.
+2020). DVL native sample rate is ~0.67 Hz; RLF logging rate is ~0.35 Hz.
+
+This record uses non-standard alignment: fields start at byte 1 (after a
+single-byte sub-type flag), so float32 fields are at odd offsets.
+
+  Offset  Size  Type        Field               Units / Notes
+  ------  ----  ----------  ------------------  ----------------------------
+  0       1     uint8       Sub-type flag       Always 0x15 (21 decimal)
+  1       4     float32 LE  ADCP parameter 1    ~35-41 (internal; possibly
+                                                battery voltage or transducer
+                                                temperature)
+  5       4     float32 LE  Attitude value 1    degrees (small, ±20°)
+  9       4     float32 LE  ADCP parameter 2    ~750-761 (internal)
+  13      4     float32 LE  Depth value 1       m (~3 m; related to vehicle
+                                                depth or bottom-track depth)
+  17      4     float32 LE  Depth value 2       m (~3 m; secondary depth)
+  21      4     float32 LE  Config constant     Always 100.0
+  25      4     float32 LE  Water temperature   degrees C (from ADCP sensor,
+                                                reads ~2°C cooler than CTD)
+  29      4     float32 LE  Altitude            m above bottom
+  33      4     float32 LE  Vehicle depth       m below sea surface
+  37      4     float32 LE  Pitch               degrees
+  41      4     float32 LE  Roll                degrees (±10° typical)
+  45      4     float32 LE  Attitude value 2    degrees (possibly 2nd pitch
+                                                or pitch rate)
+  49      4     —           Undecoded
+  53      4     float32 LE  Heading             degrees (0-360)
+  57      4     float32 LE  Bearing             degrees (0-360, similar to
+                                                heading; possibly course
+                                                over ground)
+  61      6     —           Undecoded
+  67      8     float64 LE  Position 1 lat      degrees N
+  75      8     float64 LE  Position 1 lon      degrees E
+  83      8     float64 LE  Position 2 lat      degrees N
+  91      8     float64 LE  Position 2 lon      degrees E
+  99      8     float64 LE  Position 3 lat      degrees N
+  107     8     float64 LE  Position 3 lon      degrees E
+  115     40    —           Tail data           Status bytes, partially
+                                                decoded (includes zeros
+                                                and small integers)
+
+  Notes:
+  - The three embedded lat/lon pairs likely represent the vehicle position
+    at different points during an ADCP ensemble (start/middle/end, or
+    positions for different beam configurations).
+  - The record does NOT contain per-bin velocity data; only summary
+    navigation and attitude information is stored in the RLF. Raw ADCP
+    ensemble data is in the separate .ADC files.
+  - Altitude from the ADCP (offset 29) provides a continuous bottom-range
+    measurement, unlike the Imagenex altimeter which saturates at 10 m.
+    ADCP altitude range: ~1-7 m when vehicle is in shallow water.
+
+
+4.5  Sidescan Metadata — Type 0x03f7 (1015), 55 bytes
+--------------------------------------------------------------------------------
+
+Navigation and attitude metadata logged at the sidescan sonar's ping rate.
+This record does NOT contain actual sonar imagery. The MSTL 900 kHz sidescan
+was an Ethernet-connected device (IP 192.168.1.90) that logged full-resolution
+imagery to separate storage not included in the RLF. Actual sidescan imagery
+would typically be in .son, .jsf, .xtf, or .83P/.83S format files.
+
+  Offset  Size  Type        Field               Units / Notes
+  ------  ----  ----------  ------------------  ----------------------------
+  0       4     float32 LE  Latitude            degrees N (reduced precision)
+  4       4     float32 LE  Longitude           degrees E (reduced precision)
+  8       4     float32 LE  Altitude            m above bottom
+  12      4     float32 LE  Vehicle depth       m below sea surface
+  16      4     float32 LE  Speed / velocity    m/s (~1.7 mean; vehicle speed
+                                                or current component)
+  20      4     float32 LE  Roll-like           degrees (~0 mean)
+  24      4     float32 LE  Pitch-like          degrees (~0 mean)
+  28      4     float32 LE  Small value         (partially decoded)
+  32      4     float32 LE  Temperature         degrees C (~28)
+  36      2     —           Undecoded
+  38      4     float32 LE  Heading             degrees (0-360)
+  42      13    —           Tail / status       Timing and status bytes
+
+  Sentinel value: -32.768 (float32) marks invalid/unavailable data in the
+  altitude, depth, and attitude fields. This value corresponds to 0x8000
+  (-32768) as an int16, the standard RDI "bad velocity" marker.
+
+
+4.6  Wetlabs ECO BB2F — Type 0x043e (1086), 57 bytes
+--------------------------------------------------------------------------------
+
+Optical sensor data from the Wetlabs ECO BB2F, measuring backscatter at
+470 nm and 650 nm, plus chlorophyll-a fluorescence.
+
+Channel configuration (from 130906.ini):
+  Position 1:  Ref470        raw counts
+  Position 2:  Lambda470     raw counts
+               Beta470       1/m/sr  (LINEAR: scale=2.4E-5, offset=50)
+  Position 3:  Ref650        raw counts
+  Position 4:  Lambda650     raw counts
+               Beta650       1/m/sr  (LINEAR: scale=3.26E-6, offset=100)
+  Position 5:  Chlorophyll A ug/L    (LINEAR: scale=0.016, offset=75)
+  Position 6:  Thermistor    raw counts
+
+  Offset  Size  Type        Field               Units / Notes
+  ------  ----  ----------  ------------------  ----------------------------
+  0       8     float64 LE  Latitude            degrees N
+  8       8     float64 LE  Longitude           degrees E
+  16      4     uint32 LE   Timestamp           ms since midnight UTC
+  20      4     float32 LE  Vehicle depth       m below sea surface
+  24      1     —           Padding / flag byte
+  25      4     float32 LE  Ref470              raw counts (~1000)
+  29      4     float32 LE  Lambda470           raw signal counts (~93)
+  33      4     float32 LE  Beta470             1/m/sr (derived, ~0.001)
+  37      4     float32 LE  Ref650              raw counts (~719)
+  41      4     float32 LE  Lambda650           raw signal counts (~160)
+  45      4     —           Undecoded
+  49      4     float32 LE  Chlorophyll proxy   derived value (~-0.1)
+  53      4     float32 LE  Thermistor          raw counts (~526)
+
+  Notes:
+  - ECO channels start at offset 25 (1-byte offset from 4-byte alignment),
+    indicating a single padding or flag byte at offset 24.
+  - LINEAR conversion: physical_value = scale × (raw_counts - offset)
+    Example: Beta470 = 2.4E-5 × (Lambda470_counts - 50)
+  - Negative chlorophyll values indicate raw counts below the dark offset.
+
+
+4.7  GPS / Acoustic Nav — Type 0x03f9 (1017), 59 bytes
+--------------------------------------------------------------------------------
+
+GPS position fixes and acoustic navigation / modem data.
+
+  Offset  Size  Type        Field               Units / Notes
+  ------  ----  ----------  ------------------  ----------------------------
+  0       8     float64 LE  Latitude            degrees N
+  8       8     float64 LE  Longitude           degrees E
+  16      4     uint16[2]   GPS fields          (partially decoded)
+  20      ~11   mixed       Nav parameters      (partially decoded)
+  31      ~22   ASCII       Transponder data    Contains IDs like "REMUS214",
+                                                "REMUS275" and signal quality
+                                                bytes (0x64 = 100 = max)
+  53      6     —           Tail / status
+
+  Notes:
+  - GPS time offset from UTC: -600 minutes (Hawaii Standard Time).
+  - Transponder IDs in ASCII suggest this record also carries acoustic
+    modem / transponder ranging data alongside GPS fixes.
+  - GPS configured at 19200 baud (NMEA 183).
+
+
+4.8  Acoustic Modem Log — Type 0x0424 (1060), 36 bytes
+--------------------------------------------------------------------------------
+
+Logs one acoustic modem communication event per record (~2,200-2,400 records
+per mission day). Records the modem message as a null-terminated string.
+
+  Offset  Size  Type        Field               Units / Notes
+  ------  ----  ----------  ------------------  ----------------------------
+  0       1     uint8       Flag                Always 0x01
+  1       1     uint8       Padding             Always 0x00
+  2       34    ASCII       Message string      Null-terminated, format:
+                                                {dir}({source}) {counter}:{message}
+
+  Message format:
+    dir      : '>' outgoing (modem→vehicle log) or '<' incoming (vehicle→modem)
+    source   : sender identifier (e.g. 'VehM', 'Veh')
+    counter  : per-record sequence number
+    message  : message body (see categories below)
+
+  Observed message categories (across all 3 mission days, ~7000 records):
+
+    Category              Example                          Frequency
+    --------------------  -------------------------------  -----------
+    Firmware heartbeat    'Rev: AUV13 (0.90.0.39)'        Most common
+    Self-query            'Query Self Address (SRC)'       Startup only
+    Query response        'Response:SRC is 8'             Startup only
+    Cycle / TX            'Cycle init (talk)', 'Tx begin'  Surface comms
+    Ranging pings         'Ranger data (automatic ...)'    ~1/4 min
+    Data quality          'Data quality: (2) 195'          On receive
+    Errors                'Error 13: $ not found'          Occasional
+
+
+4.9  Nav/Acoustic — Type 0x041a (1050), 57 bytes
+--------------------------------------------------------------------------------
+
+Navigation record correlated with acoustic positioning updates. Logged at the
+acoustic navigation update rate (~2,100-2,200 records per mission day). Records
+with invalid acoustic fixes carry -1.0 sentinels in the float fields and zeros
+in the lat/lon fields.
+
+  Offset  Size  Type        Field               Units / Notes
+  ------  ----  ----------  ------------------  ----------------------------
+  0       8     —           Undecoded           (header bytes)
+  8       4     float32 LE  Heading (DVL)       degrees (0-360); -1=invalid
+  12      4     float32 LE  Sound speed (DVL)   m/s (DVL-reported); -1=invalid
+  16      8     —           Undecoded
+  24      8     float64 LE  Latitude            degrees N (0 when invalid)
+  32      8     float64 LE  Longitude           degrees E (0 when invalid)
+  40      4     float32 LE  Heading (compass)   degrees (0-360)
+  44      4     float32 LE  Sound speed (CTD)   m/s (CTD-derived)
+  48      9     —           Undecoded           (tail bytes)
+
+  Notes:
+  - Two heading fields are present: one from the DVL/ADCP inertial system
+    (offset 8) and one from the vehicle compass (offset 40). They agree
+    to within a few degrees when valid.
+  - Two sound speed fields: DVL-reported (offset 12) and CTD-derived
+    (offset 44). The CTD-derived value (~1540 m/s) is more accurate.
+  - Sentinel -1.0 in DVL fields indicates no valid acoustic fix was
+    available; the vehicle was using dead reckoning instead.
+
+
+4.10  Acoustic Nav Fix — Type 0x041f (1055), 126 bytes
+--------------------------------------------------------------------------------
+
+Full transponder-based position fix computed by the acoustic navigation
+system (~114 records per mission day, roughly once every 4 minutes). Contains
+both the fix position and a wall-clock UTC timestamp embedded in the payload.
+
+  Offset  Size  Type        Field               Units / Notes
+  ------  ----  ----------  ------------------  ----------------------------
+  0       8     float64 LE  Latitude            degrees N
+  8       8     float64 LE  Longitude           degrees E
+  16      4     float32 LE  Vehicle heading     degrees (0-360)
+  20      2     uint16 LE   Sequence counter    Monotonically increasing
+  22      2     uint16 LE   Active transponders Count of transponders used
+  24      2     —           Undecoded
+  26      4     float32 LE  Vehicle speed       m/s at fix time
+  30      4     float32 LE  Acoustic slant range m to nearest transponder
+  34      12    —           Undecoded
+  46      1     uint8       Year                2-digit year (add 2000)
+  47      1     uint8       Month               1-12
+  48      1     uint8       Day                 1-31
+  49      1     uint8       Hour                0-23 (UTC)
+  50      1     uint8       Minute              0-59
+  51      1     uint8       Second              0-59
+  52      74    —           Undecoded           (transponder response data?)
+
+  Notes:
+  - The UTC wall-clock timestamp at offsets 46-51 is independent of the
+    standard ms-since-midnight encoding used by other record types. It was
+    confirmed by verifying: byte[46]=13 (2013), byte[47]=9 (Sep),
+    byte[48]=6 (day 6 for 130906.RLF).
+  - Acoustic ranges observed: 150-500 m (consistent with transponder
+    deployment depth and vehicle operating area).
+  - The vehicle used LBL (Long Baseline) acoustic navigation; the
+    transponders REMUS214 and REMUS275 are referenced in 0x03f9 records.
+
+
+4.11  Battery Status — Type 0x0412 (1042), 139 bytes
+--------------------------------------------------------------------------------
+
+Smart battery management system (BMS) status, one record per battery bank
+per logging cycle. The four battery banks cycle round-robin with ID codes
+2722, 2723, 2724, and 2899 (~40 records total per mission day, ~10 per bank).
+
+  Offset  Size  Type        Field               Units / Notes
+  ------  ----  ----------  ------------------  ----------------------------
+  0       2     —           Undecoded           (header bytes)
+  2       2     uint16 LE   Battery ID code     Cycles: 2722/2723/2724/2899
+  4       4     —           Undecoded
+  8       2     uint16 LE   Rated capacity      mAh (constant: 5500)
+  10      2     uint16 LE   Design pack voltage mV (constant: 28700)
+  12      24    —           Undecoded
+  36      2     uint16 LE   Cell voltage        mV (real-time, ~3047-3110)
+  38      2     uint16 LE   Pack voltage        mV (real-time, ~25700-27740)
+  40      99    mixed       Identity strings    Null-separated ASCII strings:
+                                                part_number (e.g. 'RE003')
+                                                serial      (e.g. '102455')
+                                                chemistry   (e.g. 'LiION')
+                                                mfg_date    (e.g. 'Dec  2 2009')
+                                                mfg_time    (e.g. '18:02:07')
+
+  Notes:
+  - Cell voltage at offset 36 is an average cell voltage (per-cell voltages
+    are in the companion Battery Cell Data record, 0x0413).
+  - Pack voltage: 9 cells × ~3.08 V = ~27.7 V nominal for LiION.
+  - The identity strings (part number, serial, chemistry, manufacturing date)
+    are constant across all records for a given battery bank — they identify
+    the physical battery, not the measurement cycle.
+  - All four batteries share the same serial number '102455', suggesting
+    they are a matched set manufactured simultaneously.
+
+
+4.12  Battery Cell Data — Type 0x0413 (1043), 52 bytes
+--------------------------------------------------------------------------------
+
+Companion record to Battery Status (0x0412), logged at the same rate with
+the same round-robin cycling through all four battery banks. Contains
+individual cell-level voltage readings from the BMS.
+
+  Offset  Size  Type        Field               Units / Notes
+  ------  ----  ----------  ------------------  ----------------------------
+  0       6     —           Undecoded           (header bytes)
+  6       2     uint16 LE   Nominal pack voltage mV (constant: 25000)
+  8       2     —           Undecoded
+  10      2     uint16 LE   Cell voltage        mV (~3089-3112)
+  12      2     uint16 LE   Cumulative energy   mAh equivalent (varies)
+  14      2     uint16 LE   Per-cycle energy    mAh (varies)
+  16      2     uint16 LE   Rated capacity      mAh (constant: 5500)
+  18      2     uint16 LE   Battery ID code     Same cycling as 0x0412
+  20      18    —           Undecoded
+  38      14    uint16[7]   Cell voltage counts 7 readings, raw counts
+                                                (~38700-39200 per cell)
+
+  Notes:
+  - The 7 cell voltage readings at offsets 38-51 are raw ADC counts from the
+    BMS, not millivolts directly. The scaling factor to convert counts to mV
+    has not been determined from this dataset alone.
+  - The "cell voltage" at offset 10 (~3089-3112 mV) is consistent with the
+    individual LiION cell voltages in the Battery Status record.
+  - Records are logged in the same round-robin order as 0x0412; the battery
+    ID code at offset 18 matches the ID code at offset 2 in 0x0412.
+
+
+5. SENSOR CROSS-REFERENCE
+================================================================================
+
+From the vehicle configuration file (130906.ini):
+
+  Sensor                    Config Setting              In RLF?
+  ----------------------    -------------------------   -------
+  YSI CTD                   Present=Yes                 Yes (0x041d)
+  Seabird CTD (SBE49)       Present=YES                 Yes (0x040a)
+  ADCP/DVL (RDI 1200 kHz)   Present=YES                 Yes (0x03e8)
+  MSTL Sidescan (900 kHz)   Present=Yes, 192.168.1.90   Metadata only (0x03f7)
+  Imagenex 852 Altimeter    Present=YES, max 10 m       Via nav record (0x044e)
+  Wetlabs ECO BB2F          Present=YES                 Yes (0x043e)
+  NMEA 183 GPS              Present=YES                 Yes (0x03f9)
+  Compass + Gyro            Present=Yes                 Via ADCP heading (0x03e8)
+  Acoustic Modem            Present=YES                 Yes (0x0424, 0x041a, 0x041f)
+  DI Depth Sensor           Offset=-9.025 m             Via nav record (0x044e)
+  Motors / Thrusters        Present=Yes                 Diagnostic log (0x03e9)
+  Smart Batteries (4×)      LiION, 5500 mAh, 300 Wh    Yes (0x0412, 0x0413)
+
+
+6. PHYSICAL VALIDATION
+================================================================================
+
+Decoded values were verified against:
+
+  1. Published literature (Amador et al. 2020):
+     - Vehicle at constant 3 m depth ✓ (nav depth mean ~2.1 m, ADCP ~3.4 m)
+     - Cruising at 2 m/s ✓
+     - Water depths 5-30 m ✓ (ADCP altitude + depth)
+     - Surveys Sep 6-8, 2013 ✓
+
+  2. UCSD dataset readme:
+     - Location: Makua Beach, O'ahu ✓ (21.52°N, 158.23°W)
+     - Variables: lat, lon, altitude, depth, yaw, pitch, roll ✓
+
+  3. UNESCO speed of sound formula:
+     - At T=27.3°C, S=35.3 PSU → predicted 1540.0 m/s
+     - YSI CTD observed mean: 1540.2 m/s ✓
+
+  4. Vehicle config (130906.ini):
+     - Imagenex 852 max range = 10 m → nav altitude saturates at 10 ✓
+     - YSI + Seabird CTD both present → two CTD record types ✓
+     - Wetlabs ECO channel definitions match decoded counts ✓
+     - UTC offset -600 min (HST) ✓
+
+  5. Battery chemistry verification:
+     - LiION nominal cell voltage: 3.0-4.2 V; observed 3.047-3.110 V ✓
+     - 9-cell pack @ ~3.08 V/cell → 27.7 V pack; observed 25.7-27.7 V ✓
+
+  6. Acoustic Nav Fix timestamp:
+     - Byte[46]=13 → year 2013, byte[47]=9 → September, byte[48]=6 → day 6 ✓
+     - Fix times match expected survey schedule ✓
+
+
+7. KNOWN LIMITATIONS
+================================================================================
+
+  - ADCP record (0x03e8): ~40 bytes in the header region (offsets 1-66) and
+    40 bytes in the tail (offsets 115-154) are only partially decoded. The
+    record does not appear to contain per-bin velocity profiles; those are
+    likely in the separate .ADC files.
+
+  - Navigation record (0x044e): 8 bytes at offsets 26-33 are undecoded
+    (likely heading and/or bearing fields).
+
+  - Sidescan record (0x03f7): No actual sonar imagery. Full-resolution
+    sidescan data was logged separately and is not in this dataset.
+
+  - ECO record (0x043e): Channel assignments at offsets 41 and 45 are
+    uncertain. The chlorophyll proxy at offset 49 may be a derived value
+    or a different channel than Chl-a.
+
+  - GPS record (0x03f9): Internal structure beyond lat/lon is only
+    partially decoded.
+
+  - Nav/Acoustic record (0x041a): First 8 bytes and last 9 bytes
+    (offsets 0-7 and 48-56) are undecoded.
+
+  - Acoustic Nav Fix record (0x041f): The 74 bytes after the timestamp
+    (offsets 52-125) are undecoded, possibly transponder response data.
+
+  - Battery Cell Data record (0x0413): The scaling factor for the 7-cell
+    ADC count readings (offsets 38-51) has not been determined.
+
+  - Eight record types remain entirely undecoded (see Section 3 "Unknown"
+    table). These likely include fin/control surface angles (0x0415),
+    housing temperature (0x040e), and various event markers.
+
+  - Checksum algorithm is not determined. The uint16 at header offset 2
+    is believed to be a checksum but the specific algorithm (CRC16,
+    Fletcher, sum, etc.) has not been determined.
+
+
+8. FILE INVENTORY
+================================================================================
+
+  Path                                 Size      Records    Duration
+  -----------------------------------  --------  ---------  --------
+  130906/RLF/130906.RLF                34.9 MB   636,346    ~4.8 hrs
+  130907/RLF/130907.RLF                35.2 MB   639,783    ~4.8 hrs
+  130907/RLF/130907R.RLF                5.1 MB   (variant)  (reprocessed?)
+  130908/RLF/130908.RLF                29.7 MB   538,455    ~4.0 hrs
+
+  Companion files (not RLF format):
+  ADCP/*.ADC     Raw ADCP ensemble data (~17 MB each)
+  ADCP/*.GPS     GPS log
+  ADCP/*.txt     ADCP text summary
+  CONFIG/*.ini   Vehicle configuration (INI format, key source for decoding)
+  CONFIG/*.rmf   Run Mission File (mission plan)

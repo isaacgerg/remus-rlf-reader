@@ -1,0 +1,31 @@
+# Raw AUV data directories (not tracked — download from doi:10.6075/J09P3042)
+130906/
+130907/
+130908/
+
+# Reference PDFs (copyrighted)
+pdf/
+
+# Scratch notes
+notes.txt
+
+# Claude Code internal
+.claude/
+
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+dist/
+build/
+.venv/
+venv/
+env/
+
+# Jupyter
+.ipynb_checkpoints/
+*.ipynb
+
+# OS
+.DS_Store
+Thumbs.db
