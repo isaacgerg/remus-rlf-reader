@@ -11,6 +11,7 @@ notes.txt
 
 # Claude Code internal
 .claude/
+CLAUDE.md
 
 # Python
 __pycache__/
