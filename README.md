@@ -136,9 +136,9 @@ python remus_rlf.py 130906/RLF/130906.RLF --plot
 | File | Contents |
 |------|----------|
 | `*_summary.png` | 8-panel sensor overview: track, depth profile, temperature/salinity, speed of sound, ECO backscatter/chlorophyll, vehicle attitude, sidescan bathymetry, navigation speed |
-| `*_quality.png` | 3-panel data quality: sensor record rate (gaps = dropouts), DVL bottom lock fraction + acoustic transponder fix events, smart battery pack voltage |
+| `*_quality.png` | 4-panel data quality: sensor record rate (gaps = dropouts), DVL bottom lock fraction + acoustic transponder fix events, smart battery pack voltage, acoustic modem receive quality scores |
 
-> **Note on acoustic modem signal quality:** The modem log contains explicit receive quality scores (`Data quality: (2) 177–198`) but those records do not carry a decoded timestamp, so they are not currently plotted against mission time. They are accessible via `parsed['Acoustic Modem Log']['message']`.
+> **Note on acoustic modem signal quality:** Modem log records carry no embedded timestamp. Timestamps are inferred by interpolating the file-byte positions of surrounding navigation records. The resulting `t_hrs` field is added to `parsed['Acoustic Modem Log']` automatically by `parse_rlf`.
 
 ### Parse ADCP directory
 
