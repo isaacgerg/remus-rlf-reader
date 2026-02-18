@@ -1,6 +1,6 @@
 # remus-rlf-reader
 
-[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
+[![License: AGPL v3](https://img.shields.io/badge/License-AGPL%20v3-blue.svg)](LICENSE)
 [![Data: CC BY 4.0](https://img.shields.io/badge/Data-CC%20BY%204.0-lightgrey.svg)](https://creativecommons.org/licenses/by/4.0/)
 
 Python parser for **REMUS-100 AUV Run Log Files** (`.RLF`) and companion ADCP data files (`.ADC`, `.GPS`, `.rmf`).
