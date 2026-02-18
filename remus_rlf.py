@@ -1058,6 +1058,55 @@ _DECODERS = {
 }
 
 
+def _stamp_by_position(data, target_type, ref_type, ref_t_hrs):
+    """Assign timestamps to records that carry no embedded timestamp.
+
+    Scans the raw binary once to record the file-byte offset of every
+    target-type and reference-type record, then uses numpy.interp to
+    map the reference timestamps onto the target positions.
+
+    Parameters
+    ----------
+    data : bytes
+        Raw file contents.
+    target_type : int
+        Record type code whose timestamps we want to infer.
+    ref_type : int
+        Record type code that carries known timestamps (e.g. REC_NAV).
+    ref_t_hrs : np.ndarray
+        Timestamps for the reference records, in hours from mission start.
+
+    Returns
+    -------
+    np.ndarray, shape (n_target,)
+        Interpolated timestamps in hours.
+    """
+    ref_pos, target_pos = [], []
+    pos = 0
+    end = len(data) - HEADER_SIZE
+    while pos < end:
+        if data[pos] == 0xEB and data[pos + 1] == 0x90:
+            _, rtype, plen = struct.unpack_from('<HHH', data, pos + 2)
+            payload_end = pos + HEADER_SIZE + plen
+            if payload_end <= len(data):
+                if rtype == ref_type:
+                    ref_pos.append(pos)
+                elif rtype == target_type:
+                    target_pos.append(pos)
+                pos = payload_end
+                continue
+        pos += 1
+
+    if not ref_pos or not target_pos:
+        return np.zeros(len(target_pos))
+
+    return np.interp(
+        np.array(target_pos, dtype=np.float64),
+        np.array(ref_pos,    dtype=np.float64),
+        ref_t_hrs,
+    )
+
+
 def parse_rlf(filepath, decode=True):
     """Parse a REMUS .RLF file.
 
@@ -1101,6 +1150,16 @@ def parse_rlf(filepath, decode=True):
             result[name] = decoder(payloads)
         else:
             result[name] = payloads  # keep raw
+
+    # Attach inferred timestamps to record types that have no embedded timestamp.
+    # Modem log payloads are variable-length strings with no timestamp field;
+    # we assign times by interpolating nav record positions in the file.
+    nav_decoded = result.get('Navigation')
+    modem_decoded = result.get('Acoustic Modem Log')
+    if (nav_decoded is not None and modem_decoded is not None
+            and isinstance(modem_decoded, dict)):
+        modem_decoded['t_hrs'] = _stamp_by_position(
+            data, REC_MODEM_LOG, REC_NAV, nav_decoded['t_hrs'])
 
     result['_raw'] = raw
     result['_summary'] = summary
@@ -1391,7 +1450,7 @@ if __name__ == '__main__':
         print(f"\nPlot saved: {outpath}")
 
         # ── Data Quality Figure ───────────────────────────────────────────────
-        fig_q, axes_q = plt.subplots(3, 1, figsize=(14, 10),
+        fig_q, axes_q = plt.subplots(4, 1, figsize=(14, 13),
                                      constrained_layout=True)
         fig_q.suptitle(f'REMUS-100 "{veh_name}" — {base} — Data Quality',
                        fontsize=13, fontweight='bold')
@@ -1504,6 +1563,39 @@ if __name__ == '__main__':
             ax.legend(fontsize=TICK_FS, framealpha=0.7)
             ax.tick_params(labelsize=TICK_FS)
             ax.set_xlim(0, t_end)
+        else:
+            ax.set_visible(False)
+
+        # Panel Q4: Acoustic modem receive quality scores
+        ax = axes_q[3]
+        modem_log = parsed.get('Acoustic Modem Log')
+        if (modem_log is not None and isinstance(modem_log, dict)
+                and 't_hrs' in modem_log and nav is not None):
+            import re as _re
+            _qual_pat = _re.compile(r'Data quality: \(\d+\) (\d+)')
+            q_t, q_scores = [], []
+            for msg, t in zip(modem_log['message'], modem_log['t_hrs']):
+                m = _qual_pat.match(msg)
+                if m:
+                    q_t.append(t)
+                    q_scores.append(int(m.group(1)))
+            if q_t:
+                t_end = nav['t_hrs'][-1]
+                ax.scatter(q_t, q_scores, s=18, color='steelblue',
+                           alpha=0.8, zorder=3)
+                ax.set_xlabel('Time (hours)', fontsize=LABEL_FS)
+                ax.set_ylabel('Quality Score', fontsize=LABEL_FS)
+                ax.set_title(
+                    f'Acoustic Modem Receive Quality (n={len(q_t)} receptions)',
+                    fontsize=TITLE_FS)
+                ax.tick_params(labelsize=TICK_FS)
+                ax.set_xlim(0, t_end)
+                ax.set_ylim(0, 210)
+            else:
+                ax.text(0.5, 0.5, 'No modem quality messages found',
+                        ha='center', va='center', transform=ax.transAxes,
+                        fontsize=LABEL_FS)
+                ax.set_title('Acoustic Modem Receive Quality', fontsize=TITLE_FS)
         else:
             ax.set_visible(False)
 
