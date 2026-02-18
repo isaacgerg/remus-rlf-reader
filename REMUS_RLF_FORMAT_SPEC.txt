@@ -350,18 +350,21 @@ GPS position fixes and acoustic navigation / modem data.
   - GPS configured at 19200 baud (NMEA 183).
 
 
-4.8  Acoustic Modem Log — Type 0x0424 (1060), 36 bytes
+4.8  Acoustic Modem Log — Type 0x0424 (1060), variable length (20–50 bytes)
 --------------------------------------------------------------------------------
 
 Logs one acoustic modem communication event per record (~2,200-2,400 records
-per mission day). Records the modem message as a null-terminated string.
+per mission day). Payload length is variable (observed range: 20–50 bytes)
+because the message string length varies. There is NO embedded timestamp field;
+this record type carries only the two flag bytes and the message string.
 
-  Offset  Size  Type        Field               Units / Notes
-  ------  ----  ----------  ------------------  ----------------------------
-  0       1     uint8       Flag                Always 0x01
-  1       1     uint8       Padding             Always 0x00
-  2       34    ASCII       Message string      Null-terminated, format:
-                                                {dir}({source}) {counter}:{message}
+  Offset  Size     Type    Field               Units / Notes
+  ------  -------  ------  ------------------  ----------------------------
+  0       1        uint8   Flag                Always 0x01 (outgoing) or
+                                               0x00 (incoming)
+  1       1        uint8   Padding             Always 0x00
+  2       variable ASCII   Message string      Null-terminated, format:
+                                               {dir}({source}) {counter}:{message}
 
   Message format:
     dir      : '>' outgoing (modem→vehicle log) or '<' incoming (vehicle→modem)
@@ -380,6 +383,12 @@ per mission day). Records the modem message as a null-terminated string.
     Ranging pings         'Ranger data (automatic ...)'    ~1/4 min
     Data quality          'Data quality: (2) 195'          On receive
     Errors                'Error 13: $ not found'          Occasional
+
+  Timestamp assignment:
+    Because no timestamp is embedded, the parser infers mission time by
+    scanning the file for the byte offset of each modem record and
+    interpolating from the surrounding Navigation record (0x044e) timestamps.
+    The resulting t_hrs values are accurate to within a few seconds.
 
 
 4.9  Nav/Acoustic — Type 0x041a (1050), 57 bytes
