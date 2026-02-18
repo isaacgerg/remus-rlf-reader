@@ -10,6 +10,7 @@ Format derived from analysis of the [Makua Beach dataset](https://doi.org/10.607
 > **⚠ Disclaimer:** The binary format specification and all field decoders were derived empirically by pattern analysis — no official Hydroid/Kongsberg documentation was used. Field offsets, scaling factors, and physical interpretations may be incorrect. **Verify decoded values against independent measurements before using them in analysis.**
 
 ![Example diagnostic plot](rlf_final_comprehensive.png)
+![Data quality plot](rlf_quality.png)
 
 ---
 

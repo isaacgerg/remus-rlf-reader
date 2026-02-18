@@ -1389,3 +1389,125 @@ if __name__ == '__main__':
         outpath = filepath.rsplit('.', 1)[0] + '_summary.png'
         plt.savefig(outpath, dpi=150, bbox_inches='tight')
         print(f"\nPlot saved: {outpath}")
+
+        # ── Data Quality Figure ───────────────────────────────────────────────
+        fig_q, axes_q = plt.subplots(3, 1, figsize=(14, 10),
+                                     constrained_layout=True)
+        fig_q.suptitle(f'REMUS-100 "{veh_name}" — {base} — Data Quality',
+                       fontsize=13, fontweight='bold')
+
+        # Panel Q1: Sensor record rate (records/minute) — gaps = dropouts
+        ax = axes_q[0]
+        if nav is not None:
+            t_end = nav['t_hrs'][-1]
+            bin_w = 1.0 / 60.0  # 1-minute bins
+            t_bins = np.arange(0, t_end + bin_w, bin_w)
+            t_centers = (t_bins[:-1] + t_bins[1:]) / 2
+
+            nav_rate, _ = np.histogram(nav['t_hrs'], bins=t_bins)
+            ax.plot(t_centers, nav_rate, color='steelblue', lw=LW + 0.3,
+                    alpha=0.85, label='Navigation (~18 Hz)')
+            if ctd is not None:
+                ctd_rate, _ = np.histogram(ctd['t_hrs'], bins=t_bins)
+                ax.plot(t_centers, ctd_rate, color='tomato', lw=LW + 0.3,
+                        alpha=0.75, label='YSI CTD (~18 Hz)')
+            h1, l1 = ax.get_legend_handles_labels()
+            h2, l2 = [], []
+            if eco is not None and 't_hrs' in eco:
+                eco_rate, _ = np.histogram(eco['t_hrs'], bins=t_bins)
+                ax_eco = ax.twinx()
+                ax_eco.plot(t_centers, eco_rate, color='#1e8449', lw=LW + 0.3,
+                            alpha=0.75, label='ECO BB2F (~1 Hz)')
+                ax_eco.set_ylabel('ECO Records / min', fontsize=LABEL_FS,
+                                  color='#1e8449')
+                ax_eco.tick_params(axis='y', colors='#1e8449', labelsize=TICK_FS)
+                h2, l2 = ax_eco.get_legend_handles_labels()
+            ax.set_xlabel('Time (hours)', fontsize=LABEL_FS)
+            ax.set_ylabel('Records per Minute', fontsize=LABEL_FS)
+            ax.set_title('Sensor Record Rate — gaps or drops indicate sensor dropouts',
+                         fontsize=TITLE_FS)
+            ax.legend(h1 + h2, l1 + l2, fontsize=TICK_FS, framealpha=0.7)
+            ax.tick_params(labelsize=TICK_FS)
+            ax.set_xlim(0, t_end)
+        else:
+            ax.set_visible(False)
+
+        # Panel Q2: DVL bottom lock fraction + acoustic nav fix markers
+        ax = axes_q[1]
+        if adcp is not None and nav is not None:
+            t_end = nav['t_hrs'][-1]
+            adcp_t = np.linspace(0, t_end, len(adcp['altitude']))
+            valid_alt = (np.isfinite(adcp['altitude']) &
+                         (adcp['altitude'] > 0) & (adcp['altitude'] < 40))
+            # 5-minute rolling fraction
+            win = max(1, int(round(5.0 / 60.0 / t_end * len(valid_alt))))
+            kernel = np.ones(win) / win
+            rolling = np.convolve(valid_alt.astype(float), kernel, mode='same')
+            ax.fill_between(adcp_t, rolling, alpha=0.25, color='steelblue')
+            ax.plot(adcp_t, rolling, color='steelblue', lw=LW + 0.3,
+                    label='DVL bottom lock (5-min rolling)')
+            ax.set_ylim(0, 1.05)
+            ax.yaxis.set_major_formatter(
+                matplotlib.ticker.FuncFormatter(lambda v, _: f'{v:.0%}'))
+
+            # Acoustic nav fix event markers
+            acoustic_fix = parsed.get('Acoustic Nav Fix')
+            if acoustic_fix and len(acoustic_fix['datetime']) > 0:
+                nav_start_utc_hrs = float(nav['ts_raw'][0] & 0x7FFFFFFF) / 3_600_000.0
+                fix_t = []
+                for dt_str in acoustic_fix['datetime']:
+                    try:
+                        hh = int(dt_str[11:13])
+                        mm_v = int(dt_str[14:16])
+                        ss = int(dt_str[17:19])
+                        delta = (hh + mm_v / 60.0 + ss / 3600.0) - nav_start_utc_hrs
+                        if delta < -12:
+                            delta += 24
+                        fix_t.append(delta)
+                    except Exception:
+                        pass
+                fix_t = [f for f in fix_t if 0 <= f <= t_end]
+                for ft in fix_t:
+                    ax.axvline(ft, color='crimson', lw=0.8, alpha=0.55, zorder=3)
+                if fix_t:
+                    ax.axvline(fix_t[0], color='crimson', lw=0.8, alpha=0.8,
+                               label=f'Acoustic nav fix (n={len(fix_t)})', zorder=3)
+            ax.set_xlabel('Time (hours)', fontsize=LABEL_FS)
+            ax.set_ylabel('Bottom Lock', fontsize=LABEL_FS)
+            ax.set_title('DVL Bottom Lock & Acoustic Navigation Fixes',
+                         fontsize=TITLE_FS)
+            ax.legend(fontsize=TICK_FS, framealpha=0.7)
+            ax.tick_params(labelsize=TICK_FS)
+            ax.set_xlim(0, t_end)
+        else:
+            ax.set_visible(False)
+
+        # Panel Q3: Battery pack voltage (time is approximate — uniform spacing)
+        ax = axes_q[2]
+        battery_status = parsed.get('Battery Status')
+        if battery_status is not None and nav is not None:
+            t_end = nav['t_hrs'][-1]
+            n_recs = len(battery_status)
+            batt_t = np.linspace(0, t_end, n_recs)
+            batt_ids = np.array([r['batt_id'] for r in battery_status])
+            pack_mv = np.array([r.get('pack_mv', np.nan) for r in battery_status])
+            colors_b = ['#e74c3c', '#3498db', '#2ecc71', '#f39c12']
+            for k, bid in enumerate(np.unique(batt_ids)):
+                mask = batt_ids == bid
+                ax.plot(batt_t[mask], pack_mv[mask] / 1000.0,
+                        'o-', ms=4, lw=1.2, color=colors_b[k % 4],
+                        label=f'Bank {bid}')
+            ax.set_xlabel('Time (hours, approx.)', fontsize=LABEL_FS)
+            ax.set_ylabel('Pack Voltage (V)', fontsize=LABEL_FS)
+            ax.set_title('Smart Battery Pack Voltage (timestamps are approximate)',
+                         fontsize=TITLE_FS)
+            ax.legend(fontsize=TICK_FS, framealpha=0.7)
+            ax.tick_params(labelsize=TICK_FS)
+            ax.set_xlim(0, t_end)
+        else:
+            ax.set_visible(False)
+
+        qpath = filepath.rsplit('.', 1)[0] + '_quality.png'
+        fig_q.savefig(qpath, dpi=150, bbox_inches='tight')
+        print(f"Plot saved: {qpath}")
+        plt.close('all')
