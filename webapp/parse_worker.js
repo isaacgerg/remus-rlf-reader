@@ -17,9 +17,9 @@ onmessage = async function(e) {
       await pyodideReady;
       postMessage({ type: 'status', msg: 'Parsing RLF file...' });
 
-      // Make file bytes available to Python
+      // Make file bytes available to Python via the Pyodide buffer
       const bytes = new Uint8Array(e.data.buffer);
-      pyodide.globals.set('_rlf_bytes', pyodide.toPy(bytes));
+      pyodide.globals.set('_rlf_bytes', bytes);
 
       // Load remus_rlf.py source and patch it to accept bytes
       const parserSrc = e.data.parserSource;
@@ -39,7 +39,10 @@ def _to_json_safe(result):
             safe = {}
             for k, v in val.items():
                 if hasattr(v, 'tolist'):
-                    safe[k] = v.tolist()
+                    if hasattr(v, 'dtype') and v.dtype.kind == 'f':
+                        safe[k] = [None if not _np.isfinite(x) else x for x in v.flat] if v.ndim <= 1 else v.tolist()
+                    else:
+                        safe[k] = v.tolist()
                 elif isinstance(v, bytes):
                     safe[k] = v.decode('utf-8', errors='replace')
                 else:
@@ -71,7 +74,7 @@ def _to_json_safe(result):
     return out
 
 # Parse the raw bytes directly
-_data = bytes(_rlf_bytes)
+_data = _rlf_bytes.to_py().tobytes()
 _raw = parse_raw_records(_data)
 _result = {}
 _summary = {}
