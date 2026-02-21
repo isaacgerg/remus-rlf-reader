@@ -42,7 +42,7 @@
     </main>
   </div>
 
-  <!-- App view: two-pane explorer (hidden until first file loads) -->
+  <!-- App view: investigation workbench -->
   <div id="app-view" class="app-view hidden">
     <!-- Left sidebar: file list -->
     <aside id="sidebar" class="sidebar">
@@ -57,6 +57,7 @@
           <tbody></tbody>
         </table>
       </div>
+      <div class="sidebar-minimap" id="sidebar-minimap"></div>
       <div class="sidebar-footer">
         <button id="add-file-btn" class="add-file-btn" title="Add another RLF file">+ Add file</button>
         <input type="file" id="file-input-add" accept=".rlf,.RLF" hidden>
@@ -65,69 +66,122 @@
 
     <!-- Right pane -->
     <div class="right-pane">
-      <!-- Fixed map at top -->
-      <div id="quicklook-map" class="quicklook-map"></div>
-
-      <!-- Tab bar -->
-      <div class="right-tabs">
-        <button class="right-tab active" data-tab="summary">Summary</button>
-        <button class="right-tab" data-tab="plots">Plots</button>
-        <button class="right-tab" data-tab="messages">Messages</button>
+      <!-- Toolbar -->
+      <div id="toolbar" class="toolbar">
+        <span class="toolbar-file" id="toolbar-file"></span>
+        <span class="toolbar-sep">|</span>
+        <span class="toolbar-cursor" id="toolbar-cursor">Cursor: --</span>
+        <span class="toolbar-sep">|</span>
+        <span class="toolbar-zoom" id="toolbar-zoom">Full range</span>
+        <button class="toolbar-btn" id="btn-reset-zoom" title="Reset zoom on all plots (R)">&#8634; Reset</button>
+        <span class="toolbar-spacer"></span>
+        <span class="toolbar-keys" title="Keyboard shortcuts">? keys</span>
       </div>
 
-      <!-- Scrollable content below map -->
-      <div class="right-scroll">
-        <div id="loading-app" class="loading hidden">
-          <div class="spinner"></div>
-          <p id="loading-msg-app">Parsing...</p>
-        </div>
+      <!-- Loading overlay -->
+      <div id="loading-app" class="loading hidden">
+        <div class="spinner"></div>
+        <p id="loading-msg-app">Parsing...</p>
+      </div>
 
-        <div id="tab-summary" class="tab-content">
-          <div id="summary-panel" class="summary-panel hidden">
-            <h2 id="summary-title">Mission Summary</h2>
-            <div id="summary-content" class="summary-content"></div>
+      <!-- Map + summary row -->
+      <div class="map-summary-row">
+        <div id="quicklook-map" class="quicklook-map"></div>
+        <div id="summary-panel" class="summary-panel hidden">
+          <div class="summary-header">
+            <h3 id="summary-title">Mission Summary</h3>
+            <button class="summary-toggle" id="summary-toggle" title="Collapse">&#x25B2;</button>
           </div>
+          <div id="summary-content" class="summary-content"></div>
         </div>
+      </div>
 
-        <div id="tab-plots" class="tab-content hidden">
-        <div id="plots-container" class="plots-container">
-          <h2>Summary Plots</h2>
-          <div class="plot-grid">
-            <div id="plot-track" class="plot-box"></div>
-            <div id="plot-depth" class="plot-box"></div>
-            <div id="plot-temp-sal" class="plot-box"></div>
-            <div id="plot-sos" class="plot-box"></div>
-            <div id="plot-eco" class="plot-box"></div>
-            <div id="plot-attitude" class="plot-box"></div>
-            <div id="plot-sidescan" class="plot-box"></div>
-            <div id="plot-nav-speed" class="plot-box"></div>
-          </div>
-
-          <h2>Data Quality</h2>
-          <div class="plot-grid quality">
-            <div id="plot-record-rate" class="plot-box wide"></div>
-            <div id="plot-dvl" class="plot-box wide"></div>
-            <div id="plot-battery" class="plot-box wide"></div>
-            <div id="plot-modem" class="plot-box wide"></div>
-          </div>
-        </div>
-        </div>
-
-        <div id="tab-messages" class="tab-content hidden">
-          <div class="messages-toolbar">
-            <select id="msg-type-filter"><option value="">All types</option></select>
+      <!-- Messages + Plots split -->
+      <div class="split-container" id="split-container">
+        <!-- Messages pane (top) -->
+        <div class="messages-pane" id="messages-pane">
+          <!-- Filter bar -->
+          <div class="filter-bar">
+            <input type="text" id="msg-search" class="msg-search" placeholder="Search messages...">
+            <label class="link-zoom-label" title="Filter messages to visible time range">
+              <input type="checkbox" id="link-zoom" checked> Link to zoom
+            </label>
             <span id="msg-status" class="msg-status"></span>
           </div>
+          <div class="type-chips" id="type-chips"></div>
+
+          <!-- Message list -->
           <div id="msg-scroll" class="msg-scroll">
             <div class="msg-header">
-              <span class="msg-col-time">Time (h)</span>
+              <span class="msg-col-time">t (hrs)</span>
+              <span class="msg-col-utc">UTC</span>
               <span class="msg-col-type">Type</span>
               <span class="msg-col-fields">Fields</span>
             </div>
             <div id="msg-body" style="position:relative;"></div>
           </div>
+
+          <!-- Detail panel -->
+          <div id="detail-panel" class="detail-panel hidden">
+            <div class="detail-header">
+              <span id="detail-title"></span>
+              <button class="detail-close" id="detail-close" title="Close (Esc)">&times;</button>
+            </div>
+            <div class="detail-body">
+              <div class="detail-fields" id="detail-fields"></div>
+              <div class="detail-context" id="detail-context">
+                <div class="detail-context-title">Context (raw stream)</div>
+                <div id="detail-context-rows"></div>
+              </div>
+            </div>
+            <details class="detail-hex">
+              <summary>Raw Hex</summary>
+              <pre id="detail-hex-content"></pre>
+            </details>
+          </div>
+        </div>
+
+        <!-- Draggable divider -->
+        <div class="split-divider" id="split-divider"></div>
+
+        <!-- Plots pane (bottom) -->
+        <div class="plots-pane" id="plots-pane">
+          <div class="plots-scroll">
+            <div class="plot-grid">
+              <div id="plot-depth" class="plot-box"></div>
+              <div id="plot-temp-sal" class="plot-box"></div>
+              <div id="plot-sos" class="plot-box"></div>
+              <div id="plot-eco" class="plot-box"></div>
+              <div id="plot-attitude" class="plot-box"></div>
+              <div id="plot-nav-speed" class="plot-box"></div>
+              <div id="plot-record-rate" class="plot-box"></div>
+              <div id="plot-dvl" class="plot-box"></div>
+            </div>
+            <div class="plot-grid secondary">
+              <div id="plot-battery" class="plot-box"></div>
+              <div id="plot-modem" class="plot-box"></div>
+              <div id="plot-track" class="plot-box"></div>
+              <div id="plot-sidescan" class="plot-box"></div>
+            </div>
+          </div>
         </div>
       </div>
+    </div>
+  </div>
+
+  <!-- Keyboard shortcuts modal -->
+  <div id="keys-modal" class="modal-overlay hidden">
+    <div class="modal-card">
+      <h3>Keyboard Shortcuts</h3>
+      <table class="keys-table">
+        <tr><td><kbd>Esc</kbd></td><td>Unlock cursor / close detail panel</td></tr>
+        <tr><td><kbd>&uarr;</kbd> <kbd>&darr;</kbd></td><td>Navigate message list</td></tr>
+        <tr><td><kbd>Enter</kbd></td><td>Lock cursor to selected message</td></tr>
+        <tr><td><kbd>F</kbd></td><td>Focus search box</td></tr>
+        <tr><td><kbd>R</kbd></td><td>Reset zoom on all plots</td></tr>
+        <tr><td><kbd>L</kbd></td><td>Toggle &ldquo;Link to zoom&rdquo;</td></tr>
+      </table>
+      <button class="modal-close" id="keys-modal-close">Close</button>
     </div>
   </div>
 
