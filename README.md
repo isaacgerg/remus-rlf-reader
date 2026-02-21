@@ -9,6 +9,8 @@ Format derived from analysis of the [Makua Beach dataset](https://doi.org/10.607
 
 > **⚠ Disclaimer:** The binary format specification and all field decoders were derived empirically by pattern analysis — no official Hydroid/Kongsberg documentation was used. Field offsets, scaling factors, and physical interpretations may be incorrect. **Verify decoded values against independent measurements before using them in analysis.**
 
+> **🚀 [Try the Web Viewer](https://isaacgerg.github.io/remus-rlf-reader/webapp/)** — Browser-based interactive explorer: drag-drop RLF file upload, 12 linked Plotly plots with synced cursors and zoom, virtual-scrolled message browser with search and type filtering. All parsing runs client-side via Pyodide (Python in WebAssembly) — no data leaves your browser.
+
 ![Example diagnostic plot](rlf_final_comprehensive.png)
 ![Data quality plot](rlf_quality.png)
 
