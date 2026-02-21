@@ -19,6 +19,7 @@ let parserSource = null;
 let currentTab = 'summary';
 const msgCache = new Map(); // filename -> {rows, filtered, filterType}
 const MSG_ROW_H = 26;
+const scrollPositions = new Map(); // filename -> scrollTop of right-scroll
 
 const QUICKLOOK_COLORS = ['#2563eb','#c0392b','#1e8449','#6c3483','darkorange','teal','crimson','saddlebrown'];
 
@@ -201,22 +202,19 @@ document.getElementById('msg-type-filter').addEventListener('change', applyTypeF
 function renderMessages() {
   const rows = getMessageRows();
   const container = document.getElementById('msg-scroll');
-  const spacer = document.getElementById('msg-spacer');
-  const tbody = document.getElementById('msg-tbody');
+  const body = document.getElementById('msg-body');
   const status = document.getElementById('msg-status');
-  const thead = document.querySelector('#msg-table thead');
-  const thH = thead ? thead.offsetHeight : 26;
 
   const total = rows.length;
-  spacer.style.height = (total * MSG_ROW_H + thH) + 'px';
+  body.style.height = (total * MSG_ROW_H) + 'px';
 
   populateTypeFilter();
 
   function paint() {
     const scrollTop = container.scrollTop;
     const viewH = container.clientHeight;
-    const startIdx = Math.max(0, Math.floor((scrollTop - thH) / MSG_ROW_H) - 5);
-    const endIdx = Math.min(total, Math.ceil((scrollTop - thH + viewH) / MSG_ROW_H) + 5);
+    const startIdx = Math.max(0, Math.floor(scrollTop / MSG_ROW_H) - 5);
+    const endIdx = Math.min(total, Math.ceil((scrollTop + viewH) / MSG_ROW_H) + 5);
 
     let html = '';
     for (let i = startIdx; i < endIdx; i++) {
@@ -226,12 +224,12 @@ function renderMessages() {
         const val = typeof v === 'number' ? (Number.isInteger(v) ? v : v.toFixed(4)) : v;
         return `${k}:${val}`;
       }).join('  ');
-      html += `<tr style="position:absolute;top:${thH + i * MSG_ROW_H}px;width:100%;display:table-row">` +
-        `<td class="msg-col-time">${tStr}</td>` +
-        `<td class="msg-col-type">${r.type}</td>` +
-        `<td class="msg-col-fields" title="${fStr}">${fStr}</td></tr>`;
+      html += `<div class="msg-row" style="top:${i * MSG_ROW_H}px;height:${MSG_ROW_H}px">` +
+        `<span class="msg-col-time">${tStr}</span>` +
+        `<span class="msg-col-type">${r.type}</span>` +
+        `<span class="msg-col-fields" title="${fStr}">${fStr}</span></div>`;
     }
-    tbody.innerHTML = html;
+    body.innerHTML = html;
     status.textContent = `Showing ${Math.max(0,startIdx+1)}–${endIdx} of ${total.toLocaleString()}`;
   }
 
@@ -241,13 +239,17 @@ function renderMessages() {
 
 function switchToFile(fname) {
   if (!fileStore.has(fname)) return;
+  // Save scroll position of current file
+  const scrollEl = document.querySelector('.right-scroll');
+  if (activeFile) scrollPositions.set(activeFile, scrollEl.scrollTop);
   activeFile = fname;
   const data = fileStore.get(fname);
   showSummary(data);
   renderAllPlots(data);
   renderQuicklook();
   if (currentTab === 'messages') renderMessages();
-  document.querySelector('.right-scroll').scrollTop = 0;
+  // Restore scroll position for this file, or reset to top
+  scrollEl.scrollTop = scrollPositions.get(fname) || 0;
 }
 
 function closeFile(fname) {
