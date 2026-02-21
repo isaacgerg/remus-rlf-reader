@@ -1,9 +1,13 @@
 // app.js — Orchestrates file upload, worker, and plot rendering
 
+const landing = document.getElementById('landing');
+const appView = document.getElementById('app-view');
 const uploadZone = document.getElementById('upload-zone');
 const fileInput = document.getElementById('file-input');
 const loading = document.getElementById('loading');
 const loadingMsg = document.getElementById('loading-msg');
+const loadingApp = document.getElementById('loading-app');
+const loadingMsgApp = document.getElementById('loading-msg-app');
 const summaryPanel = document.getElementById('summary-panel');
 const summaryTitle = document.getElementById('summary-title');
 const summaryContent = document.getElementById('summary-content');
@@ -42,20 +46,24 @@ function initWorker() {
     const msg = e.data;
     if (msg.type === 'status') {
       loadingMsg.textContent = msg.msg;
+      loadingMsgApp.textContent = msg.msg;
     } else if (msg.type === 'result') {
       loading.classList.add('hidden');
+      loadingApp.classList.add('hidden');
       const fname = msg.filename;
       fileStore.set(fname, msg.data);
       activeFile = fname;
-      uploadZone.classList.add('hidden');
+      // Switch from landing to app view
+      landing.classList.add('hidden');
+      appView.classList.remove('hidden');
       showSummary(msg.data);
       plotsContainer.classList.remove('hidden');
       renderAllPlots(msg.data);
       renderQuicklook();
     } else if (msg.type === 'error') {
       loading.classList.add('hidden');
-      // Show upload zone again if no files loaded
-      if (fileStore.size === 0) uploadZone.classList.remove('hidden');
+      loadingApp.classList.add('hidden');
+      if (fileStore.size === 0) landing.classList.remove('hidden');
       alert('Parse error: ' + msg.msg);
     }
   };
@@ -96,6 +104,8 @@ function switchToFile(fname) {
   showSummary(data);
   renderAllPlots(data);
   renderQuicklook();
+  // Scroll plots back to top
+  document.querySelector('.right-scroll').scrollTop = 0;
 }
 
 function closeFile(fname) {
@@ -104,25 +114,20 @@ function closeFile(fname) {
     activeFile = null;
     summaryPanel.classList.add('hidden');
     plotsContainer.classList.add('hidden');
-    uploadZone.classList.remove('hidden');
-    renderQuicklook();
+    // Back to landing
+    appView.classList.add('hidden');
+    landing.classList.remove('hidden');
     return;
   }
   if (activeFile === fname) {
-    // Switch to first remaining file
     const next = fileStore.keys().next().value;
     switchToFile(next);
   } else {
-    renderTabs();
     renderQuicklook();
   }
 }
 
 function renderQuicklook() {
-  const panel = document.getElementById('quicklook-panel');
-  if (fileStore.size === 0) { panel.classList.add('hidden'); return; }
-  panel.classList.remove('hidden');
-
   // Build Plotly traces
   const traces = [];
   const rows = [];
@@ -165,7 +170,7 @@ function renderQuicklook() {
   tbody.innerHTML = rows.map(r =>
     `<tr class="${r.fname === activeFile ? 'active' : ''}" data-fname="${r.fname}">
       <td><span class="quicklook-swatch" style="background:${r.color}"></span></td>
-      <td>${r.fname}</td><td>${r.dur}</td><td>${r.cnt}</td>
+      <td>${r.fname}</td><td>${r.dur}</td>
       <td><button class="quicklook-close" data-close="${r.fname}" title="Remove">&times;</button></td>
     </tr>`
   ).join('');
@@ -179,11 +184,17 @@ function renderQuicklook() {
 
 function handleFile(file) {
   if (!file || !parserSource) return;
-  loading.classList.remove('hidden');
-  uploadZone.classList.add('hidden');
-  loadingMsg.textContent = 'Loading Python runtime...';
-
   const fname = file.name;
+
+  // Show loading in the appropriate place
+  if (fileStore.size === 0) {
+    loading.classList.remove('hidden');
+    loadingMsg.textContent = 'Loading Python runtime...';
+  } else {
+    loadingApp.classList.remove('hidden');
+    loadingMsgApp.textContent = 'Parsing...';
+  }
+
   const reader = new FileReader();
   reader.onload = function(ev) {
     worker.postMessage({
@@ -196,7 +207,7 @@ function handleFile(file) {
   reader.readAsArrayBuffer(file);
 }
 
-// Event listeners — main upload zone
+// Event listeners — landing upload zone
 uploadZone.addEventListener('click', () => fileInput.click());
 fileInput.addEventListener('change', (e) => { if (e.target.files[0]) handleFile(e.target.files[0]); e.target.value = ''; });
 uploadZone.addEventListener('dragover', (e) => { e.preventDefault(); uploadZone.classList.add('dragover'); });
@@ -207,7 +218,7 @@ uploadZone.addEventListener('drop', (e) => {
   if (e.dataTransfer.files[0]) handleFile(e.dataTransfer.files[0]);
 });
 
-// Event listeners — quicklook add button
+// Event listeners — sidebar add button
 addFileBtn.addEventListener('click', () => fileInputAdd.click());
 fileInputAdd.addEventListener('change', (e) => { if (e.target.files[0]) handleFile(e.target.files[0]); e.target.value = ''; });
 
