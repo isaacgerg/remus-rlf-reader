@@ -31,7 +31,7 @@ async function loadParserSource() {
 }
 
 function initWorker() {
-  worker = new Worker('parse_worker.js');
+  worker = new Worker('parse_worker.js?v=' + Date.now());
   worker.onmessage = function(e) {
     const msg = e.data;
     if (msg.type === 'status') {
