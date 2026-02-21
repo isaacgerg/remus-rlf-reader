@@ -23,6 +23,13 @@ header {
 }
 header h1 { font-size: 1.6rem; }
 .subtitle { color: var(--muted); font-size: 0.9rem; margin-top: 0.25rem; }
+.privacy-note {
+  font-size: 0.82rem; color: var(--muted); margin-top: 0.5rem;
+  background: #f0f7f0; border: 1px solid #c6e6c6; border-radius: 6px;
+  padding: 0.5rem 1rem; display: inline-block;
+}
+.privacy-note a { color: var(--accent); text-decoration: none; }
+.privacy-note a:hover { text-decoration: underline; }
 
 main { max-width: 1400px; margin: 0 auto; padding: 0 1rem 3rem; }
 
