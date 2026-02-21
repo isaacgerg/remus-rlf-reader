@@ -228,26 +228,31 @@ function buildTypeChips() {
   container.querySelectorAll('.type-chip').forEach(chip => {
     chip.addEventListener('click', (e) => {
       const type = chip.dataset.type;
-      if (e.shiftKey) {
-        // Shift+click: toggle this type on/off
-        if (cache.enabledTypes.has(type)) {
-          cache.enabledTypes.delete(type);
-          if (cache.enabledTypes.size === 0) {
-            for (const t of cache.allTypes) cache.enabledTypes.add(t);
-          }
-        } else {
-          cache.enabledTypes.add(type);
+      const allOn = cache.enabledTypes.size === cache.allTypes.length;
+      if (allOn) {
+        // From "all on" state: click = solo this type
+        cache.enabledTypes.clear();
+        cache.enabledTypes.add(type);
+      } else if (cache.enabledTypes.has(type)) {
+        // Already on: turn it off
+        cache.enabledTypes.delete(type);
+        if (cache.enabledTypes.size === 0) {
+          // Nothing left — show all
+          for (const t of cache.allTypes) cache.enabledTypes.add(t);
         }
       } else {
-        // Click: solo this type (or show all if already solo'd)
-        const isSolo = cache.enabledTypes.size === 1 && cache.enabledTypes.has(type);
-        cache.enabledTypes.clear();
-        if (isSolo) {
-          for (const t of cache.allTypes) cache.enabledTypes.add(t);
-        } else {
-          cache.enabledTypes.add(type);
-        }
+        // Off: turn it on (additive)
+        cache.enabledTypes.add(type);
       }
+      buildTypeChips();
+      applyFilters();
+      renderMessages();
+    });
+
+    chip.addEventListener('dblclick', (e) => {
+      // Double-click: show all
+      e.preventDefault();
+      for (const t of cache.allTypes) cache.enabledTypes.add(t);
       buildTypeChips();
       applyFilters();
       renderMessages();
@@ -510,7 +515,7 @@ function updateMapCursor(t) {
   const lon = nav.lon[lo];
 
   // Update on both maps
-  for (const mapId of ['quicklook-map']) {
+  for (const mapId of ['sidebar-minimap']) {
     const mapEl = document.getElementById(mapId);
     if (!mapEl || !mapEl.data) continue;
     const nTraces = mapEl.data.length;
@@ -627,13 +632,10 @@ function renderQuicklook() {
     showlegend: false,
   };
 
-  Plotly.react('quicklook-map', traces,
-    Object.assign({}, mapLayout, { showlegend: true, legend: { x: 0.01, y: 0.99, bgcolor: 'rgba(255,255,255,0.8)', font: { size: 10 } } }),
-    { responsive: true }
-  );
+  Plotly.react('sidebar-minimap', traces, mapLayout, { responsive: true });
 
   // Wire map click → time
-  const mapEl = document.getElementById('quicklook-map');
+  const mapEl = document.getElementById('sidebar-minimap');
   if (mapEl._rlf_clickHandler) {
     mapEl.removeListener('plotly_click', mapEl._rlf_clickHandler);
   }

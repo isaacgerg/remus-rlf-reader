@@ -95,9 +95,15 @@ body {
 .sidebar-build { font-size: 0.65rem; color: var(--muted); display: block; }
 .sidebar-label { font-size: 0.7rem; color: var(--muted); font-weight: 600; text-transform: uppercase; letter-spacing: 0.04em; margin-top: 0.3rem; }
 .sidebar-files {
-  flex: 1;
+  flex-shrink: 0;
   overflow-y: auto;
+  max-height: 150px;
   padding: 0.15rem 0;
+}
+.sidebar-minimap {
+  flex: 1;
+  min-height: 120px;
+  border-top: 1px solid var(--border);
 }
 .sidebar-footer {
   padding: 0.4rem 0.5rem;
@@ -223,9 +229,6 @@ body {
 .summary-item .label { color: var(--muted); }
 .summary-item .value { font-weight: 600; }
 .summary-item + .summary-item::before { content: '\00b7'; color: var(--border); margin-right: 0.5rem; }
-
-/* Map in plot grid */
-.map-box { min-height: 300px; }
 
 /* ── Plots tab ── */
 .plots-scroll {
