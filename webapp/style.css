@@ -170,4 +170,22 @@ main { max-width: 1400px; margin: 0 auto; padding: 0 1rem 3rem; }
 }
 .add-file-btn:hover { border-color: var(--accent); color: var(--accent); }
 
+/* Quicklook panel */
+.quicklook-panel {
+  background: var(--card);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 1.5rem;
+  margin-bottom: 1.5rem;
+}
+.quicklook-panel h2 { font-size: 1.1rem; margin-bottom: 0.75rem; }
+.quicklook-map { height: 300px; border-radius: var(--radius); margin-bottom: 0.75rem; }
+.quicklook-table { width: 100%; border-collapse: collapse; font-size: 0.85rem; }
+.quicklook-table th { text-align: left; color: var(--muted); font-weight: 500; padding: 0.35rem 0.5rem; border-bottom: 1px solid var(--border); }
+.quicklook-table td { padding: 0.35rem 0.5rem; }
+.quicklook-table tbody tr { cursor: pointer; transition: background 0.15s; }
+.quicklook-table tbody tr:hover { background: rgba(37,99,235,0.06); }
+.quicklook-table tbody tr.active { background: rgba(37,99,235,0.1); font-weight: 600; }
+.quicklook-swatch { display: inline-block; width: 12px; height: 12px; border-radius: 3px; }
+
 .hidden { display: none !important; }

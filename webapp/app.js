@@ -16,6 +16,8 @@ const fileInputTabs = document.getElementById('file-input-tabs');
 let worker = null;
 let parserSource = null;
 
+const QUICKLOOK_COLORS = ['#2563eb','#c0392b','#1e8449','#6c3483','darkorange','teal','crimson','saddlebrown'];
+
 // Multi-file state
 const fileStore = new Map(); // filename -> parsed data
 let activeFile = null;
@@ -53,6 +55,7 @@ function initWorker() {
       showSummary(msg.data);
       plotsContainer.classList.remove('hidden');
       renderAllPlots(msg.data);
+      renderQuicklook();
     } else if (msg.type === 'error') {
       loading.classList.add('hidden');
       // Show upload zone again if no files loaded
@@ -118,6 +121,7 @@ function switchToFile(fname) {
   const data = fileStore.get(fname);
   showSummary(data);
   renderAllPlots(data);
+  renderQuicklook();
 }
 
 function closeFile(fname) {
@@ -128,6 +132,7 @@ function closeFile(fname) {
     summaryPanel.classList.add('hidden');
     plotsContainer.classList.add('hidden');
     uploadZone.classList.remove('hidden');
+    renderQuicklook();
     return;
   }
   if (activeFile === fname) {
@@ -136,7 +141,63 @@ function closeFile(fname) {
     switchToFile(next);
   } else {
     renderTabs();
+    renderQuicklook();
   }
+}
+
+function renderQuicklook() {
+  const panel = document.getElementById('quicklook-panel');
+  if (fileStore.size === 0) { panel.classList.add('hidden'); return; }
+  panel.classList.remove('hidden');
+
+  // Build Plotly traces
+  const traces = [];
+  const rows = [];
+  let i = 0;
+  for (const [fname, data] of fileStore) {
+    const color = QUICKLOOK_COLORS[i % QUICKLOOK_COLORS.length];
+    const nav = data['Navigation'];
+    if (nav && nav.lat && nav.lon) {
+      const lat = ds(nav.lat, 2000);
+      const lon = ds(nav.lon, 2000);
+      traces.push({
+        type: 'scattermapbox', mode: 'lines',
+        lat, lon,
+        line: { color, width: 3 },
+        name: fname,
+        hoverinfo: 'name',
+      });
+    }
+    const dur = (nav && nav.t_hrs) ? (nav.t_hrs[nav.t_hrs.length - 1] - nav.t_hrs[0]).toFixed(2) : '—';
+    const cnt = (nav && nav.t_hrs) ? nav.t_hrs.length.toLocaleString() : '—';
+    rows.push({ fname, color, dur, cnt });
+    i++;
+  }
+
+  // Compute center from all traces
+  let allLat = [], allLon = [];
+  for (const t of traces) { allLat.push(...t.lat); allLon.push(...t.lon); }
+  const cLat = allLat.length ? allLat.reduce((a,b)=>a+b,0)/allLat.length : 21.28;
+  const cLon = allLon.length ? allLon.reduce((a,b)=>a+b,0)/allLon.length : -157.84;
+
+  Plotly.react('quicklook-map', traces, {
+    mapbox: { style: 'open-street-map', center: { lat: cLat, lon: cLon }, zoom: 13 },
+    margin: { t: 0, b: 0, l: 0, r: 0 },
+    showlegend: true,
+    legend: { x: 0.01, y: 0.99, bgcolor: 'rgba(255,255,255,0.8)', font: { size: 11 } },
+  }, { responsive: true });
+
+  // Build table
+  const tbody = document.querySelector('#quicklook-table tbody');
+  tbody.innerHTML = rows.map(r =>
+    `<tr class="${r.fname === activeFile ? 'active' : ''}" data-fname="${r.fname}">
+      <td><span class="quicklook-swatch" style="background:${r.color}"></span></td>
+      <td>${r.fname}</td><td>${r.dur}</td><td>${r.cnt}</td>
+    </tr>`
+  ).join('');
+  tbody.querySelectorAll('tr').forEach(tr => {
+    tr.addEventListener('click', () => switchToFile(tr.dataset.fname));
+  });
 }
 
 function handleFile(file) {
