@@ -378,16 +378,20 @@ document.body.addEventListener('drop', (e) => {
 });
 
 // Show build hash from GitHub API (fallback: version.txt)
+function setBuildInfo(text) {
+  for (const id of ['build-info', 'build-info-app']) {
+    const el = document.getElementById(id);
+    if (el) el.textContent = text;
+  }
+}
 (async () => {
-  const el = document.getElementById('build-info');
-  if (!el) return;
   try {
     const r = await fetch('https://api.github.com/repos/isaacgerg/remus-rlf-reader/commits/main', { headers: { Accept: 'application/vnd.github.sha' } });
-    if (r.ok) { const sha = await r.text(); el.textContent = `Build: ${sha.substring(0, 7)}`; return; }
+    if (r.ok) { setBuildInfo(`Build: ${(await r.text()).substring(0, 7)}`); return; }
   } catch (_) {}
   try {
     const r = await fetch('version.txt');
-    if (r.ok) { const h = (await r.text()).trim(); if (h) el.textContent = `Build: ${h}`; }
+    if (r.ok) { const h = (await r.text()).trim(); if (h) setBuildInfo(`Build: ${h}`); }
   } catch (_) {}
 })();
 
