@@ -28,49 +28,49 @@ onmessage = async function(e) {
       // Run parse and convert to JSON-safe dict
       pyodide.runPython(`
 import json as _json
+import math as _math
 import numpy as _np
+
+class _SafeEncoder(_json.JSONEncoder):
+    def default(self, o):
+        if isinstance(o, _np.ndarray):
+            return o.tolist()
+        if isinstance(o, (_np.integer,)):
+            return int(o)
+        if isinstance(o, (_np.floating,)):
+            v = float(o)
+            return None if not _math.isfinite(v) else v
+        if isinstance(o, bytes):
+            return o.decode('utf-8', errors='replace')
+        return super().default(o)
+
+    def encode(self, o):
+        return super().encode(self._sanitize(o))
+
+    def _sanitize(self, o):
+        if isinstance(o, float):
+            return None if not _math.isfinite(o) else o
+        if isinstance(o, dict):
+            return {k: self._sanitize(v) for k, v in o.items()}
+        if isinstance(o, (list, tuple)):
+            return [self._sanitize(v) for v in o]
+        if isinstance(o, _np.ndarray):
+            return self._sanitize(o.tolist())
+        if isinstance(o, (_np.floating,)):
+            v = float(o)
+            return None if not _math.isfinite(v) else v
+        if isinstance(o, (_np.integer,)):
+            return int(o)
+        if isinstance(o, bytes):
+            return o.decode('utf-8', errors='replace')
+        return o
 
 def _to_json_safe(result):
     out = {}
     for key, val in result.items():
         if key.startswith('_'):
             continue
-        if isinstance(val, dict):
-            safe = {}
-            for k, v in val.items():
-                if hasattr(v, 'tolist'):
-                    if hasattr(v, 'dtype') and v.dtype.kind == 'f':
-                        safe[k] = [None if not _np.isfinite(x) else x for x in v.flat] if v.ndim <= 1 else v.tolist()
-                    else:
-                        safe[k] = v.tolist()
-                elif isinstance(v, bytes):
-                    safe[k] = v.decode('utf-8', errors='replace')
-                else:
-                    safe[k] = v
-            out[key] = safe
-        elif isinstance(val, list):
-            # List of dicts (waypoints, battery status, etc.)
-            safe_list = []
-            for item in val:
-                if isinstance(item, dict):
-                    safe_item = {}
-                    for k, v in item.items():
-                        if hasattr(v, 'tolist'):
-                            safe_item[k] = v.tolist()
-                        elif isinstance(v, bytes):
-                            safe_item[k] = v.decode('utf-8', errors='replace')
-                        else:
-                            safe_item[k] = v
-                    safe_list.append(safe_item)
-                elif isinstance(item, bytes):
-                    safe_list.append(item.decode('utf-8', errors='replace'))
-                else:
-                    safe_list.append(item)
-            out[key] = safe_list
-        elif isinstance(val, bytes):
-            out[key] = val.decode('utf-8', errors='replace')
-        else:
-            out[key] = val
+        out[key] = val
     return out
 
 # Parse the raw bytes directly
@@ -102,7 +102,7 @@ if (_nav_decoded is not None and _modem_decoded is not None
 _result['_raw'] = _raw
 _result['_summary'] = _summary
 
-_json_result = _json.dumps(_to_json_safe(_result))
+_json_result = _SafeEncoder().encode(_to_json_safe(_result))
 `);
 
       const jsonStr = pyodide.globals.get('_json_result');
