@@ -102,11 +102,10 @@ if (_nav_decoded is not None and _modem_decoded is not None
 _result['_raw'] = _raw
 _result['_summary'] = _summary
 
+import re as _re
 _json_result = _json.dumps(_to_json_safe(_result), cls=_SafeEncoder)
-# Belt-and-suspenders: replace any surviving NaN/Infinity literals
-_json_result = _json_result.replace(': NaN', ': null').replace('[NaN', '[null').replace(', NaN', ', null')
-_json_result = _json_result.replace(': Infinity', ': null').replace('[Infinity', '[null').replace(', Infinity', ', null')
-_json_result = _json_result.replace(': -Infinity', ': null').replace('[-Infinity', '[null').replace(', -Infinity', ', null')
+_json_result = _re.sub(r'\bNaN\b', 'null', _json_result)
+_json_result = _re.sub(r'-?Infinity', 'null', _json_result)
 `);
 
       const jsonStr = pyodide.globals.get('_json_result');
