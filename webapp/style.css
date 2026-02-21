@@ -204,31 +204,32 @@ body {
 }
 .tab-content.hidden { display: none !important; }
 
-/* ── Summary tab ── */
-.summary-tab-layout {
-  flex: 1;
+/* ── Summary bar (sticky at top of plots) ── */
+.summary-bar {
+  position: sticky;
+  top: 0;
+  z-index: 2;
   display: flex;
-  flex-direction: column;
-  overflow-y: auto;
-}
-.quicklook-map {
-  height: 350px;
-  flex-shrink: 0;
+  align-items: center;
+  gap: 1rem;
+  padding: 0.3rem 0.75rem;
+  background: var(--card);
   border-bottom: 1px solid var(--border);
+  font-size: 0.78rem;
+  flex-shrink: 0;
 }
-.summary-panel {
-  padding: 1rem 1.25rem;
-  font-size: 0.85rem;
+.summary-bar-title { font-weight: 600; white-space: nowrap; }
+.summary-bar-items {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.15rem 1rem;
 }
-.summary-panel h3 { font-size: 0.95rem; margin-bottom: 0.5rem; }
-.summary-content {
-  display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
-  gap: 0.3rem 1.25rem;
-}
-.summary-item { display: flex; justify-content: space-between; }
+.summary-item { display: flex; gap: 0.3rem; white-space: nowrap; }
 .summary-item .label { color: var(--muted); }
 .summary-item .value { font-weight: 600; }
+
+/* Map in plot grid */
+.map-box { min-height: 300px; }
 
 /* ── Plots tab ── */
 .plots-scroll {

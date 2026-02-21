@@ -19,7 +19,7 @@ const toolbarZoom = document.getElementById('toolbar-zoom');
 
 let worker = null;
 let parserSource = null;
-let currentTab = 'summary';
+let currentTab = 'plots';
 const msgCache = new Map();
 const MSG_ROW_H = 24;
 const scrollPositions = new Map();
@@ -138,7 +138,7 @@ function tHrsToUTC(t) {
 // ── Summary ──
 function showSummary(data) {
   const vehName = (data['Vehicle Name'] && data['Vehicle Name'].name) || 'REMUS-100';
-  summaryTitle.textContent = `Mission Summary — ${vehName}`;
+  summaryTitle.textContent = vehName;
 
   const nav = data['Navigation'];
   const items = [];
@@ -229,14 +229,21 @@ function buildTypeChips() {
     chip.addEventListener('click', (e) => {
       const type = chip.dataset.type;
       if (e.shiftKey) {
-        cache.enabledTypes.clear();
-        cache.enabledTypes.add(type);
-      } else {
+        // Shift+click: toggle this type on/off
         if (cache.enabledTypes.has(type)) {
           cache.enabledTypes.delete(type);
           if (cache.enabledTypes.size === 0) {
             for (const t of cache.allTypes) cache.enabledTypes.add(t);
           }
+        } else {
+          cache.enabledTypes.add(type);
+        }
+      } else {
+        // Click: solo this type (or show all if already solo'd)
+        const isSolo = cache.enabledTypes.size === 1 && cache.enabledTypes.has(type);
+        cache.enabledTypes.clear();
+        if (isSolo) {
+          for (const t of cache.allTypes) cache.enabledTypes.add(t);
         } else {
           cache.enabledTypes.add(type);
         }
@@ -765,9 +772,8 @@ document.addEventListener('keydown', (e) => {
     return;
   }
 
-  if (e.key === '1') { showTab('summary'); return; }
-  if (e.key === '2') { showTab('plots'); return; }
-  if (e.key === '3') { showTab('messages'); return; }
+  if (e.key === '1') { showTab('plots'); return; }
+  if (e.key === '2') { showTab('messages'); return; }
 
   if (e.key === '?') {
     document.getElementById('keys-modal').classList.remove('hidden');
