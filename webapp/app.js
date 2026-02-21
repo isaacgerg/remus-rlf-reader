@@ -159,7 +159,7 @@ function showSummary(data) {
   if (batt && Array.isArray(batt)) items.push(['Battery records', batt.length.toLocaleString()]);
 
   summaryContent.innerHTML = items.map(([label, value]) =>
-    `<div class="summary-item"><span class="label">${label}</span><span class="value">${value}</span></div>`
+    `<span class="summary-item"><span class="label">${label}:</span> <span class="value">${value}</span></span>`
   ).join('');
   summaryPanel.classList.remove('hidden');
 }
