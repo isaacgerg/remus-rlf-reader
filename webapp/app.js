@@ -1,4 +1,4 @@
-// app.js — Investigation workbench: global cursor, linked views, messages + detail
+// app.js — Investigation workbench with tabs, global cursor, linked views
 
 const landing = document.getElementById('landing');
 const appView = document.getElementById('app-view');
@@ -19,7 +19,8 @@ const toolbarZoom = document.getElementById('toolbar-zoom');
 
 let worker = null;
 let parserSource = null;
-const msgCache = new Map(); // filename -> {rows, filtered, filterType, searchTerm, enabledTypes}
+let currentTab = 'summary';
+const msgCache = new Map();
 const MSG_ROW_H = 24;
 const scrollPositions = new Map();
 
@@ -30,13 +31,30 @@ const fileStore = new Map();
 let activeFile = null;
 
 // Global cursor state
-let cursorT = null;        // current cursor time (hours)
-let cursorLocked = false;  // locked by click vs. following hover
-let zoomRange = null;      // [t0, t1] or null for full range
-let selectedMsgIdx = null; // index in filtered rows
+let cursorT = null;
+let cursorLocked = false;
+let zoomRange = null;
+let selectedMsgIdx = null;
+let missionRefTime = null;
 
-// Reference time (ms since midnight) for UTC computation
-let missionRefTime = null; // set from Navigation data
+// ── Tab switching ──
+function showTab(name) {
+  currentTab = name;
+  document.querySelectorAll('.tab-btn').forEach(b => b.classList.toggle('active', b.dataset.tab === name));
+  document.querySelectorAll('.tab-content').forEach(el => el.classList.add('hidden'));
+  const target = document.getElementById('tab-' + name);
+  if (target) target.classList.remove('hidden');
+  if (name === 'plots') {
+    // Trigger Plotly resize after tab becomes visible
+    requestAnimationFrame(() => window.dispatchEvent(new Event('resize')));
+  }
+  if (name === 'messages' && activeFile) {
+    requestAnimationFrame(() => renderMessages());
+  }
+}
+document.querySelectorAll('.tab-btn').forEach(btn => {
+  btn.addEventListener('click', () => showTab(btn.dataset.tab));
+});
 
 // ── Parser loading ──
 async function loadParserSource() {
@@ -67,14 +85,11 @@ function initWorker() {
       const fname = msg.filename;
       fileStore.set(fname, msg.data);
       activeFile = fname;
-      // Pre-build message cache
       const mrows = buildMessageList(msg.data);
       const types = [...new Set(mrows.map(r => r.type))].sort();
       const enabledTypes = new Set(types);
       msgCache.set(fname, { rows: mrows, filtered: mrows, enabledTypes, searchTerm: '', allTypes: types });
-      // Compute mission reference time
       computeRefTime(msg.data);
-      // Switch to app view
       landing.classList.add('hidden');
       appView.classList.remove('hidden');
       toolbarFile.textContent = fname;
@@ -83,7 +98,7 @@ function initWorker() {
       renderQuicklook();
       buildTypeChips();
       applyFilters();
-      renderMessages();
+      if (currentTab === 'messages') renderMessages();
     } else if (msg.type === 'error') {
       loading.classList.add('hidden');
       loadingApp.classList.add('hidden');
@@ -94,7 +109,6 @@ function initWorker() {
 }
 
 function computeRefTime(data) {
-  // Try to get the first navigation timestamp_ms for UTC reference
   const nav = data['Navigation'];
   if (nav && nav.timestamp_ms && nav.timestamp_ms.length > 0) {
     missionRefTime = nav.timestamp_ms[0];
@@ -114,7 +128,6 @@ function tHrsToUTC(t) {
     const frac = Math.floor((ms % 1000));
     return `${String(h).padStart(2,'0')}:${String(m).padStart(2,'0')}:${String(s).padStart(2,'0')}.${String(frac).padStart(3,'0')}`;
   }
-  // Fallback: just show relative
   const totalSec = t * 3600;
   const h = Math.floor(totalSec / 3600);
   const m = Math.floor((totalSec % 3600) / 60);
@@ -125,25 +138,25 @@ function tHrsToUTC(t) {
 // ── Summary ──
 function showSummary(data) {
   const vehName = (data['Vehicle Name'] && data['Vehicle Name'].name) || 'REMUS-100';
-  summaryTitle.textContent = vehName;
+  summaryTitle.textContent = `Mission Summary — ${vehName}`;
 
   const nav = data['Navigation'];
   const items = [];
   if (nav && nav.t_hrs) {
     const dur = nav.t_hrs[nav.t_hrs.length - 1] - nav.t_hrs[0];
-    items.push(['Duration', `${dur.toFixed(2)} hrs`]);
+    items.push(['Duration', `${dur.toFixed(2)} hours`]);
     items.push(['Nav records', nav.t_hrs.length.toLocaleString()]);
   }
   const ctd = data['YSI CTD'];
-  if (ctd) items.push(['CTD', ctd.t_hrs.length.toLocaleString()]);
+  if (ctd) items.push(['CTD records', ctd.t_hrs.length.toLocaleString()]);
   const eco = data['Wetlabs ECO BB2F'];
-  if (eco && eco.t_hrs) items.push(['ECO', eco.t_hrs.length.toLocaleString()]);
+  if (eco && eco.t_hrs) items.push(['ECO records', eco.t_hrs.length.toLocaleString()]);
   const adcp = data['ADCP/DVL (1200 kHz)'];
-  if (adcp) items.push(['ADCP', adcp.heading.length.toLocaleString()]);
+  if (adcp) items.push(['ADCP records', adcp.heading.length.toLocaleString()]);
   const ss = data['Sidescan (900 kHz)'];
-  if (ss) items.push(['Sidescan', ss.depth.length.toLocaleString()]);
+  if (ss) items.push(['Sidescan records', ss.depth.length.toLocaleString()]);
   const batt = data['Battery Status'];
-  if (batt && Array.isArray(batt)) items.push(['Battery', batt.length.toLocaleString()]);
+  if (batt && Array.isArray(batt)) items.push(['Battery records', batt.length.toLocaleString()]);
 
   summaryContent.innerHTML = items.map(([label, value]) =>
     `<div class="summary-item"><span class="label">${label}</span><span class="value">${value}</span></div>`
@@ -151,14 +164,7 @@ function showSummary(data) {
   summaryPanel.classList.remove('hidden');
 }
 
-// Summary collapse toggle
-document.getElementById('summary-toggle').addEventListener('click', () => {
-  summaryPanel.classList.toggle('collapsed');
-  const btn = document.getElementById('summary-toggle');
-  btn.innerHTML = summaryPanel.classList.contains('collapsed') ? '&#x25BC;' : '&#x25B2;';
-});
-
-// ── Build flat message list from parsed data ──
+// ── Build flat message list ──
 function buildMessageList(data) {
   const rows = [];
   const skip = new Set(['_raw', '_summary']);
@@ -201,7 +207,6 @@ function buildMessageList(data) {
     if (b.t == null) return 1;
     return a.t - b.t;
   });
-  // Assign global indices for context lookups
   for (let i = 0; i < rows.length; i++) rows[i]._idx = i;
   return rows;
 }
@@ -224,13 +229,11 @@ function buildTypeChips() {
     chip.addEventListener('click', (e) => {
       const type = chip.dataset.type;
       if (e.shiftKey) {
-        // Solo: enable only this type
         cache.enabledTypes.clear();
         cache.enabledTypes.add(type);
       } else {
         if (cache.enabledTypes.has(type)) {
           cache.enabledTypes.delete(type);
-          // If none enabled, re-enable all
           if (cache.enabledTypes.size === 0) {
             for (const t of cache.allTypes) cache.enabledTypes.add(t);
           }
@@ -253,13 +256,10 @@ function applyFilters() {
   const linkZoom = document.getElementById('link-zoom').checked;
 
   cache.filtered = cache.rows.filter(r => {
-    // Type filter
     if (!cache.enabledTypes.has(r.type)) return false;
-    // Zoom filter
     if (linkZoom && zoomRange && r.t != null) {
       if (r.t < zoomRange[0] || r.t > zoomRange[1]) return false;
     }
-    // Search filter
     if (search) {
       const fieldStr = Object.entries(r.fields).map(([k,v]) => `${k}:${v}`).join(' ').toLowerCase();
       if (!fieldStr.includes(search) && !r.type.toLowerCase().includes(search)) return false;
@@ -282,7 +282,6 @@ msgSearch.addEventListener('input', () => {
   }, 150);
 });
 
-// Link to zoom checkbox
 document.getElementById('link-zoom').addEventListener('change', () => {
   applyFilters();
   renderMessages();
@@ -334,11 +333,9 @@ function renderMessages() {
     }
     body.innerHTML = html;
 
-    // Attach click handlers
     body.querySelectorAll('.msg-row').forEach(row => {
       row.addEventListener('click', () => {
-        const idx = parseInt(row.dataset.idx);
-        selectMessage(idx);
+        selectMessage(parseInt(row.dataset.idx));
       });
     });
   }
@@ -358,7 +355,6 @@ function selectMessage(idx) {
   selectedMsgIdx = idx;
   const row = rows[idx];
 
-  // Lock cursor to this message's time
   if (row.t != null) {
     cursorT = row.t;
     cursorLocked = true;
@@ -368,7 +364,7 @@ function selectMessage(idx) {
   }
 
   showDetailPanel(row, cache.rows);
-  renderMessages(); // repaint to show selection
+  renderMessages();
 }
 
 // ── Detail panel ──
@@ -382,7 +378,6 @@ function showDetailPanel(row, allRows) {
   const utcStr = tHrsToUTC(row.t);
   title.textContent = `${row.type} — t=${tStr}h (${utcStr} UTC) — record #${row._idx}`;
 
-  // Fields
   fields.innerHTML = Object.entries(row.fields).map(([k, v]) => {
     let val;
     if (typeof v === 'number') {
@@ -395,7 +390,6 @@ function showDetailPanel(row, allRows) {
     return `<div class="field-row"><span class="field-key">${k}:</span><span class="field-val">${val}</span></div>`;
   }).join('');
 
-  // Context: ±5 records in the raw (unfiltered) stream
   const rawIdx = row._idx;
   const ctxStart = Math.max(0, rawIdx - 5);
   const ctxEnd = Math.min(allRows.length, rawIdx + 6);
@@ -415,23 +409,19 @@ function showDetailPanel(row, allRows) {
   }
   ctxRows.innerHTML = ctxHtml;
 
-  // Click context rows to navigate
   ctxRows.querySelectorAll('.detail-context-row').forEach(el => {
     el.addEventListener('click', () => {
       const ri = parseInt(el.dataset.rawIdx);
-      // Find this row in filtered list
       const cache = msgCache.get(activeFile);
       const filtIdx = cache.filtered.findIndex(r => r._idx === ri);
       if (filtIdx >= 0) {
         selectMessage(filtIdx);
       } else {
-        // Show in detail even if filtered out
         showDetailPanel(cache.rows[ri], cache.rows);
       }
     });
   });
 
-  // Raw hex placeholder (we don't have raw bytes in JS, show field dump)
   document.getElementById('detail-hex-content').textContent =
     'Raw payload bytes not available in browser parse.\n' +
     'Field dump:\n' + JSON.stringify(row.fields, null, 2);
@@ -457,7 +447,6 @@ function updateCursorDisplay() {
   }
 }
 
-// Called from plots.js on hover
 function onPlotHover(t) {
   if (cursorLocked) return;
   cursorT = t;
@@ -466,38 +455,33 @@ function onPlotHover(t) {
   updateMapCursor(t);
 }
 
-// Called from plots.js on click
 function onPlotClick(t) {
   cursorT = t;
   cursorLocked = true;
   updateCursorDisplay();
   updateCursorOnPlots(t);
   updateMapCursor(t);
-  // Scroll message list to nearest message
   scrollMessagesToTime(t);
 }
 
-// Called from plots.js on zoom
 function onPlotZoom(range) {
   zoomRange = range;
   toolbarZoom.textContent = `${range[0].toFixed(3)}h – ${range[1].toFixed(3)}h`;
   if (document.getElementById('link-zoom').checked) {
     applyFilters();
-    renderMessages();
+    if (currentTab === 'messages') renderMessages();
   }
 }
 
-// Called from plots.js on zoom reset
 function onZoomReset() {
   zoomRange = null;
   toolbarZoom.textContent = 'Full range';
   if (document.getElementById('link-zoom').checked) {
     applyFilters();
-    renderMessages();
+    if (currentTab === 'messages') renderMessages();
   }
 }
 
-// Reset zoom button
 document.getElementById('btn-reset-zoom').addEventListener('click', () => {
   resetAllZoom();
 });
@@ -509,7 +493,6 @@ function updateMapCursor(t) {
   const nav = data && data['Navigation'];
   if (!nav || !nav.t_hrs || !nav.lat || !nav.lon) return;
 
-  // Find nearest index via binary search
   const tArr = nav.t_hrs;
   let lo = 0, hi = tArr.length - 1;
   while (lo < hi) {
@@ -519,24 +502,22 @@ function updateMapCursor(t) {
   const lat = nav.lat[lo];
   const lon = nav.lon[lo];
 
-  const mapEl = document.getElementById('sidebar-minimap');
-  if (!mapEl || !mapEl.data) return;
-
-  // Check if cursor trace already exists
-  const nTraces = mapEl.data.length;
-  const cursorTrace = {
-    type: 'scattermapbox', mode: 'markers',
-    lat: [lat], lon: [lon],
-    marker: { size: 10, color: '#e74c3c', symbol: 'circle' },
-    name: 'Cursor', showlegend: false,
-    hoverinfo: 'skip',
-  };
-
-  // Always update the last trace as cursor
-  if (mapEl.data[nTraces - 1] && mapEl.data[nTraces - 1].name === 'Cursor') {
-    Plotly.restyle(mapEl, { lat: [[lat]], lon: [[lon]] }, [nTraces - 1]);
-  } else {
-    Plotly.addTraces(mapEl, cursorTrace);
+  // Update on both maps
+  for (const mapId of ['sidebar-minimap', 'quicklook-map']) {
+    const mapEl = document.getElementById(mapId);
+    if (!mapEl || !mapEl.data) continue;
+    const nTraces = mapEl.data.length;
+    const cursorTrace = {
+      type: 'scattermapbox', mode: 'markers',
+      lat: [lat], lon: [lon],
+      marker: { size: 10, color: '#e74c3c', symbol: 'circle' },
+      name: 'Cursor', showlegend: false, hoverinfo: 'skip',
+    };
+    if (mapEl.data[nTraces - 1] && mapEl.data[nTraces - 1].name === 'Cursor') {
+      Plotly.restyle(mapEl, { lat: [[lat]], lon: [[lon]] }, [nTraces - 1]);
+    } else {
+      Plotly.addTraces(mapEl, cursorTrace);
+    }
   }
 }
 
@@ -545,15 +526,21 @@ function scrollMessagesToTime(t) {
   const rows = msgCache.get(activeFile).filtered;
   if (!rows.length) return;
 
-  // Binary search for nearest time
   let lo = 0, hi = rows.length - 1;
   while (lo < hi) {
     const mid = (lo + hi) >> 1;
     if (rows[mid].t == null || rows[mid].t < t) lo = mid + 1; else hi = mid;
   }
 
-  const container = document.getElementById('msg-scroll');
-  container.scrollTop = Math.max(0, (lo - 3) * MSG_ROW_H);
+  // If not on messages tab, switch to it
+  if (currentTab !== 'messages') {
+    showTab('messages');
+  }
+
+  requestAnimationFrame(() => {
+    const container = document.getElementById('msg-scroll');
+    container.scrollTop = Math.max(0, (lo - 3) * MSG_ROW_H);
+  });
 }
 
 // ── File management ──
@@ -571,9 +558,8 @@ function switchToFile(fname) {
   buildTypeChips();
   msgSearch.value = msgCache.get(fname)?.searchTerm || '';
   applyFilters();
-  renderMessages();
+  if (currentTab === 'messages') renderMessages();
   scrollEl.scrollTop = scrollPositions.get(fname) || 0;
-  // Reset cursor state
   cursorT = null;
   cursorLocked = false;
   selectedMsgIdx = null;
@@ -628,21 +614,19 @@ function renderQuicklook() {
   const cLat = allLat.length ? allLat.reduce((a,b)=>a+b,0)/allLat.length : 21.28;
   const cLon = allLon.length ? allLon.reduce((a,b)=>a+b,0)/allLon.length : -157.84;
 
-  Plotly.react('sidebar-minimap', traces, {
+  const mapLayout = {
     mapbox: { style: 'open-street-map', center: { lat: cLat, lon: cLon }, zoom: 13 },
     margin: { t: 0, b: 0, l: 0, r: 0 },
     showlegend: false,
-  }, { responsive: true });
+  };
 
-  // Also render the main map
-  Plotly.react('quicklook-map', traces, {
-    mapbox: { style: 'open-street-map', center: { lat: cLat, lon: cLon }, zoom: 13 },
-    margin: { t: 0, b: 0, l: 0, r: 0 },
-    showlegend: true,
-    legend: { x: 0.01, y: 0.99, bgcolor: 'rgba(255,255,255,0.8)', font: { size: 10 } },
-  }, { responsive: true });
+  Plotly.react('sidebar-minimap', traces, mapLayout, { responsive: true });
+  Plotly.react('quicklook-map', traces,
+    Object.assign({}, mapLayout, { showlegend: true, legend: { x: 0.01, y: 0.99, bgcolor: 'rgba(255,255,255,0.8)', font: { size: 10 } } }),
+    { responsive: true }
+  );
 
-  // Wire map click → time (purge old listeners by re-bindng)
+  // Wire map click → time
   const mapEl = document.getElementById('quicklook-map');
   if (mapEl._rlf_clickHandler) {
     mapEl.removeListener('plotly_click', mapEl._rlf_clickHandler);
@@ -650,7 +634,6 @@ function renderQuicklook() {
   mapEl._rlf_clickHandler = function(ev) {
     if (!ev.points || !ev.points[0]) return;
     const pt = ev.points[0];
-    // Find nearest time from lat/lon
     const data = fileStore.get(activeFile);
     const nav = data && data['Navigation'];
     if (!nav) return;
@@ -708,53 +691,10 @@ function handleFile(file) {
   reader.readAsArrayBuffer(file);
 }
 
-// ── Draggable split divider ──
-(function initSplitDivider() {
-  const divider = document.getElementById('split-divider');
-  const container = document.getElementById('split-container');
-  const msgPane = document.getElementById('messages-pane');
-  let dragging = false;
-
-  divider.addEventListener('mousedown', (e) => {
-    e.preventDefault();
-    dragging = true;
-    divider.classList.add('active');
-    document.body.style.cursor = 'row-resize';
-    document.body.style.userSelect = 'none';
-  });
-
-  document.addEventListener('mousemove', (e) => {
-    if (!dragging) return;
-    const rect = container.getBoundingClientRect();
-    const pct = ((e.clientY - rect.top) / rect.height) * 100;
-    const clamped = Math.max(15, Math.min(85, pct));
-    msgPane.style.flex = `0 0 ${clamped}%`;
-  });
-
-  document.addEventListener('mouseup', () => {
-    if (!dragging) return;
-    dragging = false;
-    divider.classList.remove('active');
-    document.body.style.cursor = '';
-    document.body.style.userSelect = '';
-    // Trigger Plotly resize
-    window.dispatchEvent(new Event('resize'));
-  });
-
-  // Double-click to reset
-  divider.addEventListener('dblclick', () => {
-    msgPane.style.flex = '0 0 40%';
-    window.dispatchEvent(new Event('resize'));
-  });
-})();
-
 // ── Keyboard shortcuts ──
 document.addEventListener('keydown', (e) => {
-  // Don't capture if typing in an input
   if (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA') {
-    if (e.key === 'Escape') {
-      e.target.blur();
-    }
+    if (e.key === 'Escape') e.target.blur();
     return;
   }
 
@@ -767,13 +707,13 @@ document.addEventListener('keydown', (e) => {
     } else if (selectedMsgIdx != null) {
       hideDetailPanel();
     } else {
-      // Close modals
       document.getElementById('keys-modal').classList.add('hidden');
     }
     return;
   }
 
   if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
+    if (currentTab !== 'messages') return;
     e.preventDefault();
     if (!activeFile || !msgCache.has(activeFile)) return;
     const rows = msgCache.get(activeFile).filtered;
@@ -785,7 +725,6 @@ document.addEventListener('keydown', (e) => {
         ? Math.min(rows.length - 1, selectedMsgIdx + 1)
         : Math.max(0, selectedMsgIdx - 1);
       selectMessage(next);
-      // Scroll into view
       const container = document.getElementById('msg-scroll');
       const rowTop = next * MSG_ROW_H;
       if (rowTop < container.scrollTop + MSG_ROW_H) {
@@ -812,22 +751,23 @@ document.addEventListener('keydown', (e) => {
 
   if (e.key === 'f' || e.key === 'F') {
     e.preventDefault();
-    msgSearch.focus();
+    showTab('messages');
+    requestAnimationFrame(() => msgSearch.focus());
     return;
   }
 
-  if (e.key === 'r' || e.key === 'R') {
-    resetAllZoom();
-    return;
-  }
-
+  if (e.key === 'r' || e.key === 'R') { resetAllZoom(); return; }
   if (e.key === 'l' || e.key === 'L') {
     const cb = document.getElementById('link-zoom');
     cb.checked = !cb.checked;
     applyFilters();
-    renderMessages();
+    if (currentTab === 'messages') renderMessages();
     return;
   }
+
+  if (e.key === '1') { showTab('summary'); return; }
+  if (e.key === '2') { showTab('plots'); return; }
+  if (e.key === '3') { showTab('messages'); return; }
 
   if (e.key === '?') {
     document.getElementById('keys-modal').classList.remove('hidden');
@@ -857,11 +797,9 @@ uploadZone.addEventListener('drop', (e) => {
   if (e.dataTransfer.files[0]) handleFile(e.dataTransfer.files[0]);
 });
 
-// Sidebar add button
 addFileBtn.addEventListener('click', () => fileInputAdd.click());
 fileInputAdd.addEventListener('change', (e) => { if (e.target.files[0]) handleFile(e.target.files[0]); e.target.value = ''; });
 
-// Whole-page drag-drop
 document.body.addEventListener('dragover', (e) => {
   if (fileStore.size > 0) e.preventDefault();
 });

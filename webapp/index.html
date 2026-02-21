@@ -6,7 +6,7 @@
   <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
   <meta http-equiv="Pragma" content="no-cache">
   <title>REMUS RLF Explorer</title>
-  <link rel="stylesheet" href="style.css?v=2">
+  <link rel="stylesheet" href="style.css?v=3">
   <script src="https://cdn.plot.ly/plotly-2.35.2.min.js" charset="utf-8"></script>
 </head>
 <body>
@@ -42,9 +42,9 @@
     </main>
   </div>
 
-  <!-- App view: investigation workbench -->
+  <!-- App view -->
   <div id="app-view" class="app-view hidden">
-    <!-- Left sidebar: file list -->
+    <!-- Left sidebar -->
     <aside id="sidebar" class="sidebar">
       <div class="sidebar-header">
         <h2>REMUS RLF Explorer</h2>
@@ -78,39 +78,66 @@
         <span class="toolbar-keys" title="Keyboard shortcuts">? keys</span>
       </div>
 
+      <!-- Tab bar -->
+      <div class="tab-bar">
+        <button class="tab-btn active" data-tab="summary">Summary</button>
+        <button class="tab-btn" data-tab="plots">Plots</button>
+        <button class="tab-btn" data-tab="messages">Messages</button>
+      </div>
+
       <!-- Loading overlay -->
       <div id="loading-app" class="loading hidden">
         <div class="spinner"></div>
         <p id="loading-msg-app">Parsing...</p>
       </div>
 
-      <!-- Map + summary row -->
-      <div class="map-summary-row">
-        <div id="quicklook-map" class="quicklook-map"></div>
-        <div id="summary-panel" class="summary-panel hidden">
-          <div class="summary-header">
+      <!-- Tab: Summary -->
+      <div id="tab-summary" class="tab-content">
+        <div class="summary-tab-layout">
+          <div id="quicklook-map" class="quicklook-map"></div>
+          <div id="summary-panel" class="summary-panel hidden">
             <h3 id="summary-title">Mission Summary</h3>
-            <button class="summary-toggle" id="summary-toggle" title="Collapse">&#x25B2;</button>
+            <div id="summary-content" class="summary-content"></div>
           </div>
-          <div id="summary-content" class="summary-content"></div>
         </div>
       </div>
 
-      <!-- Messages + Plots split -->
-      <div class="split-container" id="split-container">
-        <!-- Messages pane (top) -->
-        <div class="messages-pane" id="messages-pane">
-          <!-- Filter bar -->
-          <div class="filter-bar">
-            <input type="text" id="msg-search" class="msg-search" placeholder="Search messages...">
-            <label class="link-zoom-label" title="Filter messages to visible time range">
-              <input type="checkbox" id="link-zoom" checked> Link to zoom
-            </label>
-            <span id="msg-status" class="msg-status"></span>
+      <!-- Tab: Plots -->
+      <div id="tab-plots" class="tab-content hidden">
+        <div class="plots-scroll">
+          <div class="plot-grid">
+            <div id="plot-depth" class="plot-box"></div>
+            <div id="plot-temp-sal" class="plot-box"></div>
+            <div id="plot-sos" class="plot-box"></div>
+            <div id="plot-eco" class="plot-box"></div>
+            <div id="plot-attitude" class="plot-box"></div>
+            <div id="plot-nav-speed" class="plot-box"></div>
+            <div id="plot-record-rate" class="plot-box"></div>
+            <div id="plot-dvl" class="plot-box"></div>
           </div>
-          <div class="type-chips" id="type-chips"></div>
+          <div class="plot-grid secondary">
+            <div id="plot-battery" class="plot-box"></div>
+            <div id="plot-modem" class="plot-box"></div>
+            <div id="plot-track" class="plot-box"></div>
+            <div id="plot-sidescan" class="plot-box"></div>
+          </div>
+        </div>
+      </div>
 
-          <!-- Message list -->
+      <!-- Tab: Messages -->
+      <div id="tab-messages" class="tab-content hidden">
+        <!-- Filter bar -->
+        <div class="filter-bar">
+          <input type="text" id="msg-search" class="msg-search" placeholder="Search messages...">
+          <label class="link-zoom-label" title="Filter messages to visible plot time range">
+            <input type="checkbox" id="link-zoom" checked> Link to zoom
+          </label>
+          <span id="msg-status" class="msg-status"></span>
+        </div>
+        <div class="type-chips" id="type-chips"></div>
+
+        <!-- Message list + detail split -->
+        <div class="msg-split">
           <div id="msg-scroll" class="msg-scroll">
             <div class="msg-header">
               <span class="msg-col-time">t (hrs)</span>
@@ -140,31 +167,6 @@
             </details>
           </div>
         </div>
-
-        <!-- Draggable divider -->
-        <div class="split-divider" id="split-divider"></div>
-
-        <!-- Plots pane (bottom) -->
-        <div class="plots-pane" id="plots-pane">
-          <div class="plots-scroll">
-            <div class="plot-grid">
-              <div id="plot-depth" class="plot-box"></div>
-              <div id="plot-temp-sal" class="plot-box"></div>
-              <div id="plot-sos" class="plot-box"></div>
-              <div id="plot-eco" class="plot-box"></div>
-              <div id="plot-attitude" class="plot-box"></div>
-              <div id="plot-nav-speed" class="plot-box"></div>
-              <div id="plot-record-rate" class="plot-box"></div>
-              <div id="plot-dvl" class="plot-box"></div>
-            </div>
-            <div class="plot-grid secondary">
-              <div id="plot-battery" class="plot-box"></div>
-              <div id="plot-modem" class="plot-box"></div>
-              <div id="plot-track" class="plot-box"></div>
-              <div id="plot-sidescan" class="plot-box"></div>
-            </div>
-          </div>
-        </div>
       </div>
     </div>
   </div>
@@ -180,12 +182,13 @@
         <tr><td><kbd>F</kbd></td><td>Focus search box</td></tr>
         <tr><td><kbd>R</kbd></td><td>Reset zoom on all plots</td></tr>
         <tr><td><kbd>L</kbd></td><td>Toggle &ldquo;Link to zoom&rdquo;</td></tr>
+        <tr><td><kbd>1</kbd> <kbd>2</kbd> <kbd>3</kbd></td><td>Switch tabs</td></tr>
       </table>
       <button class="modal-close" id="keys-modal-close">Close</button>
     </div>
   </div>
 
-  <script src="plots.js?v=2"></script>
-  <script src="app.js?v=2"></script>
+  <script src="plots.js?v=3"></script>
+  <script src="app.js?v=3"></script>
 </body>
 </html>
