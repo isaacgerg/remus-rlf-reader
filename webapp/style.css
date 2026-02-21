@@ -265,9 +265,11 @@ body {
 }
 .msg-header > span, .msg-row > span {
   padding: 0.25rem 0.5rem;
+  white-space: nowrap;
+}
+.msg-row > span {
   overflow: hidden;
   text-overflow: ellipsis;
-  white-space: nowrap;
 }
 .msg-row { position: absolute; left: 0; right: 0; border-bottom: 1px solid #f0f0f0; }
 .msg-row:hover { background: rgba(37,99,235,0.04); }
