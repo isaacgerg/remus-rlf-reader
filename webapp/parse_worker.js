@@ -108,7 +108,9 @@ _json_result = _re.sub(r'\bNaN\b', 'null', _json_result)
 _json_result = _re.sub(r'-?Infinity', 'null', _json_result)
 `);
 
-      const jsonStr = pyodide.globals.get('_json_result');
+      let jsonStr = pyodide.globals.get('_json_result');
+      // Python json.dumps emits NaN/Infinity literals — fix in JS
+      jsonStr = jsonStr.replace(/\bNaN\b/g, 'null').replace(/-?Infinity/g, 'null');
       const parsed = JSON.parse(jsonStr);
       postMessage({ type: 'result', data: parsed });
     } catch (err) {
