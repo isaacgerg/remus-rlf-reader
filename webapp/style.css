@@ -151,6 +151,7 @@ body {
 .right-scroll {
   flex: 1;
   overflow-y: auto;
+  overflow-x: hidden;
   padding: 1rem 1.5rem 3rem;
 }
 
@@ -235,11 +236,18 @@ body {
 .msg-scroll {
   position: relative;
   overflow-y: auto;
-  height: calc(100vh - var(--map-h) - 110px);
+  flex: 1;
+  min-height: 200px;
   border: 1px solid var(--border);
   border-radius: var(--radius);
   background: var(--card);
 }
+#tab-messages {
+  display: flex;
+  flex-direction: column;
+  height: calc(100vh - var(--map-h) - 90px);
+}
+#tab-messages.hidden { display: none !important; }
 .msg-header, .msg-row {
   display: flex;
   font-size: 0.78rem;

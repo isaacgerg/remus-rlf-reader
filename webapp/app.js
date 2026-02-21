@@ -209,6 +209,9 @@ function renderMessages() {
   body.style.height = (total * MSG_ROW_H) + 'px';
 
   populateTypeFilter();
+  status.textContent = total === 0 ? 'No messages' : `${total.toLocaleString()} messages`;
+
+  if (total === 0) { body.innerHTML = ''; return; }
 
   function paint() {
     const scrollTop = container.scrollTop;
@@ -233,8 +236,11 @@ function renderMessages() {
     status.textContent = `Showing ${Math.max(0,startIdx+1)}–${endIdx} of ${total.toLocaleString()}`;
   }
 
-  paint();
-  container.onscroll = paint;
+  // Use requestAnimationFrame to ensure layout is computed after tab becomes visible
+  requestAnimationFrame(() => {
+    paint();
+    container.onscroll = paint;
+  });
 }
 
 function switchToFile(fname) {
