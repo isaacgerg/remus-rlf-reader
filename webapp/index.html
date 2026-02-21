@@ -1,0 +1,69 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>REMUS RLF Explorer</title>
+  <link rel="stylesheet" href="style.css">
+  <script src="https://cdn.plot.ly/plotly-2.35.2.min.js" charset="utf-8"></script>
+</head>
+<body>
+  <header>
+    <h1>REMUS RLF Explorer</h1>
+    <p class="subtitle">Client-side AUV Run Log File viewer &mdash; powered by Pyodide</p>
+  </header>
+
+  <main>
+    <!-- Upload zone -->
+    <div id="upload-zone" class="upload-zone">
+      <div class="upload-content">
+        <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
+          <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
+          <polyline points="17 8 12 3 7 8"/>
+          <line x1="12" y1="3" x2="12" y2="15"/>
+        </svg>
+        <p>Drop an <strong>.RLF</strong> file here or click to browse</p>
+        <input type="file" id="file-input" accept=".rlf,.RLF" hidden>
+      </div>
+    </div>
+
+    <!-- Loading overlay -->
+    <div id="loading" class="loading hidden">
+      <div class="spinner"></div>
+      <p id="loading-msg">Loading Python runtime...</p>
+    </div>
+
+    <!-- Summary panel -->
+    <div id="summary-panel" class="summary-panel hidden">
+      <h2 id="summary-title">Mission Summary</h2>
+      <div id="summary-content" class="summary-content"></div>
+    </div>
+
+    <!-- Plot panels -->
+    <div id="plots-container" class="plots-container hidden">
+      <h2>Summary Plots</h2>
+      <div class="plot-grid">
+        <div id="plot-track" class="plot-box"></div>
+        <div id="plot-depth" class="plot-box"></div>
+        <div id="plot-temp-sal" class="plot-box"></div>
+        <div id="plot-sos" class="plot-box"></div>
+        <div id="plot-eco" class="plot-box"></div>
+        <div id="plot-attitude" class="plot-box"></div>
+        <div id="plot-sidescan" class="plot-box"></div>
+        <div id="plot-nav-speed" class="plot-box"></div>
+      </div>
+
+      <h2>Data Quality</h2>
+      <div class="plot-grid quality">
+        <div id="plot-record-rate" class="plot-box wide"></div>
+        <div id="plot-dvl" class="plot-box wide"></div>
+        <div id="plot-battery" class="plot-box wide"></div>
+        <div id="plot-modem" class="plot-box wide"></div>
+      </div>
+    </div>
+  </main>
+
+  <script src="plots.js"></script>
+  <script src="app.js"></script>
+</body>
+</html>
