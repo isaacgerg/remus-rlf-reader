@@ -66,6 +66,13 @@
       <!-- Fixed map at top -->
       <div id="quicklook-map" class="quicklook-map"></div>
 
+      <!-- Tab bar -->
+      <div class="right-tabs">
+        <button class="right-tab active" data-tab="summary">Summary</button>
+        <button class="right-tab" data-tab="plots">Plots</button>
+        <button class="right-tab" data-tab="messages">Messages</button>
+      </div>
+
       <!-- Scrollable content below map -->
       <div class="right-scroll">
         <div id="loading-app" class="loading hidden">
@@ -73,12 +80,15 @@
           <p id="loading-msg-app">Parsing...</p>
         </div>
 
-        <div id="summary-panel" class="summary-panel hidden">
-          <h2 id="summary-title">Mission Summary</h2>
-          <div id="summary-content" class="summary-content"></div>
+        <div id="tab-summary" class="tab-content">
+          <div id="summary-panel" class="summary-panel hidden">
+            <h2 id="summary-title">Mission Summary</h2>
+            <div id="summary-content" class="summary-content"></div>
+          </div>
         </div>
 
-        <div id="plots-container" class="plots-container hidden">
+        <div id="tab-plots" class="tab-content hidden">
+        <div id="plots-container" class="plots-container">
           <h2>Summary Plots</h2>
           <div class="plot-grid">
             <div id="plot-track" class="plot-box"></div>
@@ -97,6 +107,21 @@
             <div id="plot-dvl" class="plot-box wide"></div>
             <div id="plot-battery" class="plot-box wide"></div>
             <div id="plot-modem" class="plot-box wide"></div>
+          </div>
+        </div>
+        </div>
+
+        <div id="tab-messages" class="tab-content hidden">
+          <div class="messages-toolbar">
+            <select id="msg-type-filter"><option value="">All types</option></select>
+            <span id="msg-status" class="msg-status"></span>
+          </div>
+          <div id="msg-scroll" class="msg-scroll">
+            <div id="msg-spacer" class="msg-spacer"></div>
+            <table id="msg-table" class="msg-table">
+              <thead><tr><th class="msg-col-time">Time (hrs)</th><th class="msg-col-type">Type</th><th class="msg-col-fields">Fields</th></tr></thead>
+              <tbody id="msg-tbody"></tbody>
+            </table>
           </div>
         </div>
       </div>

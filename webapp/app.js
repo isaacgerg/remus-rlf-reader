@@ -11,12 +11,14 @@ const loadingMsgApp = document.getElementById('loading-msg-app');
 const summaryPanel = document.getElementById('summary-panel');
 const summaryTitle = document.getElementById('summary-title');
 const summaryContent = document.getElementById('summary-content');
-const plotsContainer = document.getElementById('plots-container');
 const addFileBtn = document.getElementById('add-file-btn');
 const fileInputAdd = document.getElementById('file-input-add');
 
 let worker = null;
 let parserSource = null;
+let currentTab = 'summary';
+const msgCache = new Map(); // filename -> {rows, filtered, filterType}
+const MSG_ROW_H = 26;
 
 const QUICKLOOK_COLORS = ['#2563eb','#c0392b','#1e8449','#6c3483','darkorange','teal','crimson','saddlebrown'];
 
@@ -53,13 +55,17 @@ function initWorker() {
       const fname = msg.filename;
       fileStore.set(fname, msg.data);
       activeFile = fname;
+      // Pre-build message cache
+      const mrows = buildMessageList(msg.data);
+      msgCache.set(fname, { rows: mrows, filtered: mrows, filterType: '' });
       // Switch from landing to app view
       landing.classList.add('hidden');
       appView.classList.remove('hidden');
       showSummary(msg.data);
-      plotsContainer.classList.remove('hidden');
+
       renderAllPlots(msg.data);
       renderQuicklook();
+      if (currentTab === 'messages') renderMessages();
     } else if (msg.type === 'error') {
       loading.classList.add('hidden');
       loadingApp.classList.add('hidden');
@@ -97,6 +103,142 @@ function showSummary(data) {
   summaryPanel.classList.remove('hidden');
 }
 
+// ── Tab switching ──
+function showTab(name) {
+  currentTab = name;
+  document.querySelectorAll('.right-tab').forEach(b => b.classList.toggle('active', b.dataset.tab === name));
+  document.querySelectorAll('.tab-content').forEach(el => el.classList.add('hidden'));
+  const target = document.getElementById('tab-' + name);
+  if (target) target.classList.remove('hidden');
+  if (name === 'messages' && activeFile) renderMessages();
+}
+document.querySelectorAll('.right-tab').forEach(btn => {
+  btn.addEventListener('click', () => showTab(btn.dataset.tab));
+});
+
+// ── Build flat message list from parsed data ──
+function buildMessageList(data) {
+  const rows = [];
+  const skip = new Set(['_raw', '_summary']);
+  for (const [type, rec] of Object.entries(data)) {
+    if (skip.has(type)) continue;
+    if (Array.isArray(rec)) {
+      // List-of-dicts (Battery, Waypoints)
+      for (const entry of rec) {
+        const t = entry.t_hrs != null ? entry.t_hrs : null;
+        const fields = {};
+        for (const [k, v] of Object.entries(entry)) {
+          if (k !== 't_hrs') fields[k] = v;
+        }
+        rows.push({ t, type, fields });
+      }
+    } else if (rec && typeof rec === 'object' && rec.t_hrs && Array.isArray(rec.t_hrs)) {
+      // Time-series with parallel arrays
+      const keys = Object.keys(rec).filter(k => k !== 't_hrs');
+      const n = rec.t_hrs.length;
+      for (let i = 0; i < n; i++) {
+        const fields = {};
+        for (const k of keys) {
+          if (Array.isArray(rec[k]) && rec[k].length === n) {
+            fields[k] = rec[k][i];
+          }
+        }
+        rows.push({ t: rec.t_hrs[i], type, fields });
+      }
+    } else if (rec && typeof rec === 'object') {
+      // Single dict (Vehicle Info, etc.)
+      const fields = {};
+      for (const [k, v] of Object.entries(rec)) {
+        if (!Array.isArray(v)) fields[k] = v;
+      }
+      if (Object.keys(fields).length > 0) {
+        rows.push({ t: null, type, fields });
+      }
+    }
+  }
+  rows.sort((a, b) => {
+    if (a.t == null && b.t == null) return 0;
+    if (a.t == null) return -1;
+    if (b.t == null) return 1;
+    return a.t - b.t;
+  });
+  return rows;
+}
+
+function getMessageRows() {
+  if (!activeFile) return [];
+  if (!msgCache.has(activeFile)) {
+    const rows = buildMessageList(fileStore.get(activeFile));
+    msgCache.set(activeFile, { rows, filtered: rows, filterType: '' });
+  }
+  return msgCache.get(activeFile).filtered;
+}
+
+function populateTypeFilter() {
+  const sel = document.getElementById('msg-type-filter');
+  if (!activeFile || !msgCache.has(activeFile)) return;
+  const cache = msgCache.get(activeFile);
+  const types = [...new Set(cache.rows.map(r => r.type))].sort();
+  const cur = sel.value;
+  sel.innerHTML = '<option value="">All types</option>' + types.map(t =>
+    `<option value="${t}" ${t === cur ? 'selected' : ''}>${t}</option>`
+  ).join('');
+}
+
+function applyTypeFilter() {
+  const sel = document.getElementById('msg-type-filter');
+  const val = sel.value;
+  if (!activeFile || !msgCache.has(activeFile)) return;
+  const cache = msgCache.get(activeFile);
+  cache.filterType = val;
+  cache.filtered = val ? cache.rows.filter(r => r.type === val) : cache.rows;
+  renderMessages();
+}
+
+document.getElementById('msg-type-filter').addEventListener('change', applyTypeFilter);
+
+// ── Virtual-scroll messages ──
+function renderMessages() {
+  const rows = getMessageRows();
+  const container = document.getElementById('msg-scroll');
+  const spacer = document.getElementById('msg-spacer');
+  const tbody = document.getElementById('msg-tbody');
+  const status = document.getElementById('msg-status');
+  const thead = document.querySelector('#msg-table thead');
+  const thH = thead ? thead.offsetHeight : 26;
+
+  const total = rows.length;
+  spacer.style.height = (total * MSG_ROW_H + thH) + 'px';
+
+  populateTypeFilter();
+
+  function paint() {
+    const scrollTop = container.scrollTop;
+    const viewH = container.clientHeight;
+    const startIdx = Math.max(0, Math.floor((scrollTop - thH) / MSG_ROW_H) - 5);
+    const endIdx = Math.min(total, Math.ceil((scrollTop - thH + viewH) / MSG_ROW_H) + 5);
+
+    let html = '';
+    for (let i = startIdx; i < endIdx; i++) {
+      const r = rows[i];
+      const tStr = r.t != null ? r.t.toFixed(4) : '—';
+      const fStr = Object.entries(r.fields).map(([k,v]) => {
+        const val = typeof v === 'number' ? (Number.isInteger(v) ? v : v.toFixed(4)) : v;
+        return `${k}:${val}`;
+      }).join('  ');
+      html += `<tr style="position:absolute;top:${thH + i * MSG_ROW_H}px;width:100%;display:table-row">` +
+        `<td class="msg-col-time">${tStr}</td>` +
+        `<td class="msg-col-type">${r.type}</td>` +
+        `<td class="msg-col-fields" title="${fStr}">${fStr}</td></tr>`;
+    }
+    tbody.innerHTML = html;
+    status.textContent = `Showing ${Math.max(0,startIdx+1)}–${endIdx} of ${total.toLocaleString()}`;
+  }
+
+  paint();
+  container.onscroll = paint;
+}
+
 function switchToFile(fname) {
   if (!fileStore.has(fname)) return;
   activeFile = fname;
@@ -104,16 +246,16 @@ function switchToFile(fname) {
   showSummary(data);
   renderAllPlots(data);
   renderQuicklook();
-  // Scroll plots back to top
+  if (currentTab === 'messages') renderMessages();
   document.querySelector('.right-scroll').scrollTop = 0;
 }
 
 function closeFile(fname) {
   fileStore.delete(fname);
+  msgCache.delete(fname);
   if (fileStore.size === 0) {
     activeFile = null;
     summaryPanel.classList.add('hidden');
-    plotsContainer.classList.add('hidden');
     // Back to landing
     appView.classList.add('hidden');
     landing.classList.remove('hidden');
