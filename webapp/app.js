@@ -881,8 +881,16 @@ function setBuildInfo(text) {
 }
 (async () => {
   try {
-    const r = await fetch('https://api.github.com/repos/isaacgerg/remus-rlf-reader/commits/main', { headers: { Accept: 'application/vnd.github.sha' } });
-    if (r.ok) { setBuildInfo(`Build: ${(await r.text()).substring(0, 7).toUpperCase()}`); return; }
+    const r = await fetch('https://api.github.com/repos/isaacgerg/remus-rlf-reader/commits/main');
+    if (r.ok) {
+      const j = await r.json();
+      const sha = j.sha.substring(0, 7).toUpperCase();
+      const d = new Date(j.commit.committer.date);
+      const dateStr = d.toLocaleDateString('en-US', { year: 'numeric', month: 'short', day: 'numeric' });
+      const timeStr = d.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', hour12: false });
+      setBuildInfo(`Build: ${sha} (${dateStr} ${timeStr})`);
+      return;
+    }
   } catch (_) {}
   try {
     const r = await fetch('version.txt');
