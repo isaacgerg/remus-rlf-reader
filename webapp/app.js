@@ -510,7 +510,7 @@ function updateMapCursor(t) {
   const lon = nav.lon[lo];
 
   // Update on both maps
-  for (const mapId of ['sidebar-minimap', 'quicklook-map']) {
+  for (const mapId of ['quicklook-map']) {
     const mapEl = document.getElementById(mapId);
     if (!mapEl || !mapEl.data) continue;
     const nTraces = mapEl.data.length;
@@ -627,7 +627,6 @@ function renderQuicklook() {
     showlegend: false,
   };
 
-  Plotly.react('sidebar-minimap', traces, mapLayout, { responsive: true });
   Plotly.react('quicklook-map', traces,
     Object.assign({}, mapLayout, { showlegend: true, legend: { x: 0.01, y: 0.99, bgcolor: 'rgba(255,255,255,0.8)', font: { size: 10 } } }),
     { responsive: true }

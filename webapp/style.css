@@ -95,15 +95,9 @@ body {
 .sidebar-build { font-size: 0.65rem; color: var(--muted); display: block; }
 .sidebar-label { font-size: 0.7rem; color: var(--muted); font-weight: 600; text-transform: uppercase; letter-spacing: 0.04em; margin-top: 0.3rem; }
 .sidebar-files {
-  flex-shrink: 0;
-  overflow-y: auto;
-  max-height: 150px;
-  padding: 0.15rem 0;
-}
-.sidebar-minimap {
   flex: 1;
-  min-height: 120px;
-  border-top: 1px solid var(--border);
+  overflow-y: auto;
+  padding: 0.15rem 0;
 }
 .sidebar-footer {
   padding: 0.4rem 0.5rem;
