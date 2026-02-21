@@ -393,11 +393,11 @@ function setBuildInfo(text) {
 (async () => {
   try {
     const r = await fetch('https://api.github.com/repos/isaacgerg/remus-rlf-reader/commits/main', { headers: { Accept: 'application/vnd.github.sha' } });
-    if (r.ok) { setBuildInfo(`Build: ${(await r.text()).substring(0, 7)}`); return; }
+    if (r.ok) { setBuildInfo(`Build: ${(await r.text()).substring(0, 7).toUpperCase()}`); return; }
   } catch (_) {}
   try {
     const r = await fetch('version.txt');
-    if (r.ok) { const h = (await r.text()).trim(); if (h) setBuildInfo(`Build: ${h}`); }
+    if (r.ok) { const h = (await r.text()).trim(); if (h) setBuildInfo(`Build: ${h.toUpperCase()}`); }
   } catch (_) {}
 })();
 

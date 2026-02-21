@@ -271,7 +271,7 @@ body {
 }
 .msg-row { position: absolute; left: 0; right: 0; border-bottom: 1px solid #f0f0f0; }
 .msg-row:hover { background: rgba(37,99,235,0.04); }
-.msg-col-time { width: 80px; flex-shrink: 0; }
+.msg-col-time { width: 100px; flex-shrink: 0; }
 .msg-col-type { width: 140px; flex-shrink: 0; }
 .msg-col-fields { flex: 1; min-width: 0; }
 
