@@ -21,13 +21,6 @@
   </header>
 
   <main>
-    <!-- File tabs bar -->
-    <div id="file-tabs" class="file-tabs hidden">
-      <div id="tab-list" class="tab-list"></div>
-      <button id="add-file-btn" class="add-file-btn" title="Add another RLF file">+</button>
-      <input type="file" id="file-input-tabs" accept=".rlf,.RLF" hidden>
-    </div>
-
     <!-- Upload zone -->
     <div id="upload-zone" class="upload-zone">
       <div class="upload-content">
@@ -47,14 +40,18 @@
       <p id="loading-msg">Loading Python runtime...</p>
     </div>
 
-    <!-- Quicklook panel -->
+    <!-- Quicklook panel (sticky) -->
     <div id="quicklook-panel" class="quicklook-panel hidden">
-      <h2>All Tracks</h2>
+      <div class="quicklook-sidebar">
+        <h2>Tracks</h2>
+        <table id="quicklook-table" class="quicklook-table">
+          <thead><tr><th></th><th>File</th><th>Hrs</th><th>Nav</th><th></th></tr></thead>
+          <tbody></tbody>
+        </table>
+        <button id="add-file-btn" class="add-file-btn-ql" title="Add another RLF file">+ Add file</button>
+        <input type="file" id="file-input-add" accept=".rlf,.RLF" hidden>
+      </div>
       <div id="quicklook-map" class="quicklook-map"></div>
-      <table id="quicklook-table" class="quicklook-table">
-        <thead><tr><th></th><th>File</th><th>Duration (hrs)</th><th>Nav records</th></tr></thead>
-        <tbody></tbody>
-      </table>
     </div>
 
     <!-- Summary panel -->

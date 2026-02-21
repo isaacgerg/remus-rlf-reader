@@ -8,10 +8,8 @@ const summaryPanel = document.getElementById('summary-panel');
 const summaryTitle = document.getElementById('summary-title');
 const summaryContent = document.getElementById('summary-content');
 const plotsContainer = document.getElementById('plots-container');
-const fileTabs = document.getElementById('file-tabs');
-const tabList = document.getElementById('tab-list');
 const addFileBtn = document.getElementById('add-file-btn');
-const fileInputTabs = document.getElementById('file-input-tabs');
+const fileInputAdd = document.getElementById('file-input-add');
 
 let worker = null;
 let parserSource = null;
@@ -49,8 +47,6 @@ function initWorker() {
       const fname = msg.filename;
       fileStore.set(fname, msg.data);
       activeFile = fname;
-      renderTabs();
-      fileTabs.classList.remove('hidden');
       uploadZone.classList.add('hidden');
       showSummary(msg.data);
       plotsContainer.classList.remove('hidden');
@@ -93,31 +89,9 @@ function showSummary(data) {
   summaryPanel.classList.remove('hidden');
 }
 
-function renderTabs() {
-  tabList.innerHTML = '';
-  for (const fname of fileStore.keys()) {
-    const tab = document.createElement('div');
-    tab.className = 'file-tab' + (fname === activeFile ? ' active' : '');
-
-    const label = document.createElement('span');
-    label.textContent = fname;
-    label.addEventListener('click', () => switchToFile(fname));
-
-    const closeBtn = document.createElement('button');
-    closeBtn.className = 'tab-close';
-    closeBtn.textContent = '\u00d7';
-    closeBtn.addEventListener('click', (e) => { e.stopPropagation(); closeFile(fname); });
-
-    tab.appendChild(label);
-    tab.appendChild(closeBtn);
-    tabList.appendChild(tab);
-  }
-}
-
 function switchToFile(fname) {
   if (!fileStore.has(fname)) return;
   activeFile = fname;
-  renderTabs();
   const data = fileStore.get(fname);
   showSummary(data);
   renderAllPlots(data);
@@ -128,7 +102,6 @@ function closeFile(fname) {
   fileStore.delete(fname);
   if (fileStore.size === 0) {
     activeFile = null;
-    fileTabs.classList.add('hidden');
     summaryPanel.classList.add('hidden');
     plotsContainer.classList.add('hidden');
     uploadZone.classList.remove('hidden');
@@ -193,10 +166,14 @@ function renderQuicklook() {
     `<tr class="${r.fname === activeFile ? 'active' : ''}" data-fname="${r.fname}">
       <td><span class="quicklook-swatch" style="background:${r.color}"></span></td>
       <td>${r.fname}</td><td>${r.dur}</td><td>${r.cnt}</td>
+      <td><button class="quicklook-close" data-close="${r.fname}" title="Remove">&times;</button></td>
     </tr>`
   ).join('');
   tbody.querySelectorAll('tr').forEach(tr => {
     tr.addEventListener('click', () => switchToFile(tr.dataset.fname));
+  });
+  tbody.querySelectorAll('.quicklook-close').forEach(btn => {
+    btn.addEventListener('click', (e) => { e.stopPropagation(); closeFile(btn.dataset.close); });
   });
 }
 
@@ -230,9 +207,9 @@ uploadZone.addEventListener('drop', (e) => {
   if (e.dataTransfer.files[0]) handleFile(e.dataTransfer.files[0]);
 });
 
-// Event listeners — tab bar add button
-addFileBtn.addEventListener('click', () => fileInputTabs.click());
-fileInputTabs.addEventListener('change', (e) => { if (e.target.files[0]) handleFile(e.target.files[0]); e.target.value = ''; });
+// Event listeners — quicklook add button
+addFileBtn.addEventListener('click', () => fileInputAdd.click());
+fileInputAdd.addEventListener('change', (e) => { if (e.target.files[0]) handleFile(e.target.files[0]); e.target.value = ''; });
 
 // Allow drag-drop on the whole page when files are already loaded
 document.body.addEventListener('dragover', (e) => {
