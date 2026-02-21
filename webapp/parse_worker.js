@@ -112,7 +112,7 @@ _json_result = _re.sub(r'-?Infinity', 'null', _json_result)
       // Python json.dumps emits NaN/Infinity literals — fix in JS
       jsonStr = jsonStr.replace(/\bNaN\b/g, 'null').replace(/-?Infinity/g, 'null');
       const parsed = JSON.parse(jsonStr);
-      postMessage({ type: 'result', data: parsed });
+      postMessage({ type: 'result', data: parsed, filename: e.data.filename || 'unknown.rlf' });
     } catch (err) {
       postMessage({ type: 'error', msg: err.message || String(err) });
     }

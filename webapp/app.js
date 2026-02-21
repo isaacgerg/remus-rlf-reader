@@ -8,19 +8,25 @@ const summaryPanel = document.getElementById('summary-panel');
 const summaryTitle = document.getElementById('summary-title');
 const summaryContent = document.getElementById('summary-content');
 const plotsContainer = document.getElementById('plots-container');
+const fileTabs = document.getElementById('file-tabs');
+const tabList = document.getElementById('tab-list');
+const addFileBtn = document.getElementById('add-file-btn');
+const fileInputTabs = document.getElementById('file-input-tabs');
 
 let worker = null;
 let parserSource = null;
 
+// Multi-file state
+const fileStore = new Map(); // filename -> parsed data
+let activeFile = null;
+
 // Load remus_rlf.py source at startup
 async function loadParserSource() {
-  // Try loading from sibling directory (typical deployment alongside remus_rlf.py)
   for (const path of ['../remus_rlf.py', './remus_rlf.py']) {
     try {
       const resp = await fetch(path);
       if (resp.ok) {
         parserSource = await resp.text();
-        // Strip the __main__ block to avoid side effects
         const mainIdx = parserSource.indexOf("\nif __name__");
         if (mainIdx > -1) parserSource = parserSource.substring(0, mainIdx);
         return;
@@ -38,11 +44,19 @@ function initWorker() {
       loadingMsg.textContent = msg.msg;
     } else if (msg.type === 'result') {
       loading.classList.add('hidden');
+      const fname = msg.filename;
+      fileStore.set(fname, msg.data);
+      activeFile = fname;
+      renderTabs();
+      fileTabs.classList.remove('hidden');
+      uploadZone.classList.add('hidden');
       showSummary(msg.data);
       plotsContainer.classList.remove('hidden');
       renderAllPlots(msg.data);
     } else if (msg.type === 'error') {
       loading.classList.add('hidden');
+      // Show upload zone again if no files loaded
+      if (fileStore.size === 0) uploadZone.classList.remove('hidden');
       alert('Parse error: ' + msg.msg);
     }
   };
@@ -76,32 +90,98 @@ function showSummary(data) {
   summaryPanel.classList.remove('hidden');
 }
 
+function renderTabs() {
+  tabList.innerHTML = '';
+  for (const fname of fileStore.keys()) {
+    const tab = document.createElement('div');
+    tab.className = 'file-tab' + (fname === activeFile ? ' active' : '');
+
+    const label = document.createElement('span');
+    label.textContent = fname;
+    label.addEventListener('click', () => switchToFile(fname));
+
+    const closeBtn = document.createElement('button');
+    closeBtn.className = 'tab-close';
+    closeBtn.textContent = '\u00d7';
+    closeBtn.addEventListener('click', (e) => { e.stopPropagation(); closeFile(fname); });
+
+    tab.appendChild(label);
+    tab.appendChild(closeBtn);
+    tabList.appendChild(tab);
+  }
+}
+
+function switchToFile(fname) {
+  if (!fileStore.has(fname)) return;
+  activeFile = fname;
+  renderTabs();
+  const data = fileStore.get(fname);
+  showSummary(data);
+  renderAllPlots(data);
+}
+
+function closeFile(fname) {
+  fileStore.delete(fname);
+  if (fileStore.size === 0) {
+    activeFile = null;
+    fileTabs.classList.add('hidden');
+    summaryPanel.classList.add('hidden');
+    plotsContainer.classList.add('hidden');
+    uploadZone.classList.remove('hidden');
+    return;
+  }
+  if (activeFile === fname) {
+    // Switch to first remaining file
+    const next = fileStore.keys().next().value;
+    switchToFile(next);
+  } else {
+    renderTabs();
+  }
+}
+
 function handleFile(file) {
   if (!file || !parserSource) return;
-  uploadZone.classList.add('hidden');
   loading.classList.remove('hidden');
+  uploadZone.classList.add('hidden');
   loadingMsg.textContent = 'Loading Python runtime...';
 
+  const fname = file.name;
   const reader = new FileReader();
   reader.onload = function(ev) {
     worker.postMessage({
       type: 'parse',
       buffer: ev.target.result,
       parserSource: parserSource,
+      filename: fname,
     }, [ev.target.result]);
   };
   reader.readAsArrayBuffer(file);
 }
 
-// Event listeners
+// Event listeners — main upload zone
 uploadZone.addEventListener('click', () => fileInput.click());
-fileInput.addEventListener('change', (e) => { if (e.target.files[0]) handleFile(e.target.files[0]); });
+fileInput.addEventListener('change', (e) => { if (e.target.files[0]) handleFile(e.target.files[0]); e.target.value = ''; });
 uploadZone.addEventListener('dragover', (e) => { e.preventDefault(); uploadZone.classList.add('dragover'); });
 uploadZone.addEventListener('dragleave', () => uploadZone.classList.remove('dragover'));
 uploadZone.addEventListener('drop', (e) => {
   e.preventDefault();
   uploadZone.classList.remove('dragover');
   if (e.dataTransfer.files[0]) handleFile(e.dataTransfer.files[0]);
+});
+
+// Event listeners — tab bar add button
+addFileBtn.addEventListener('click', () => fileInputTabs.click());
+fileInputTabs.addEventListener('change', (e) => { if (e.target.files[0]) handleFile(e.target.files[0]); e.target.value = ''; });
+
+// Allow drag-drop on the whole page when files are already loaded
+document.body.addEventListener('dragover', (e) => {
+  if (fileStore.size > 0) e.preventDefault();
+});
+document.body.addEventListener('drop', (e) => {
+  if (fileStore.size > 0 && e.dataTransfer.files[0]) {
+    e.preventDefault();
+    handleFile(e.dataTransfer.files[0]);
+  }
 });
 
 // Init
