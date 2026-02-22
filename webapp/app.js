@@ -36,6 +36,7 @@ let cursorLocked = false;
 let zoomRange = null;
 let selectedMsgIdx = null;
 let missionRefTime = null;
+let pendingMsgScrollTop = null; // scroll offset to apply next time Messages tab renders
 
 // ── Tab switching ──
 function showTab(name) {
@@ -226,32 +227,41 @@ function buildTypeChips() {
   }).join('');
 
   container.querySelectorAll('.type-chip').forEach(chip => {
+    let _chipClickTimer = null;
+
     chip.addEventListener('click', (e) => {
-      const type = chip.dataset.type;
-      const allOn = cache.enabledTypes.size === cache.allTypes.length;
-      if (allOn) {
-        // From "all on" state: click = solo this type
-        cache.enabledTypes.clear();
-        cache.enabledTypes.add(type);
-      } else if (cache.enabledTypes.has(type)) {
-        // Already on: turn it off
-        cache.enabledTypes.delete(type);
-        if (cache.enabledTypes.size === 0) {
-          // Nothing left — show all
-          for (const t of cache.allTypes) cache.enabledTypes.add(t);
+      // Delay single-click action so a fast second click (double-click) can cancel it.
+      clearTimeout(_chipClickTimer);
+      _chipClickTimer = setTimeout(() => {
+        _chipClickTimer = null;
+        const type = chip.dataset.type;
+        const allOn = cache.enabledTypes.size === cache.allTypes.length;
+        if (allOn) {
+          // From "all on" state: click = solo this type
+          cache.enabledTypes.clear();
+          cache.enabledTypes.add(type);
+        } else if (cache.enabledTypes.has(type)) {
+          // Already on: turn it off
+          cache.enabledTypes.delete(type);
+          if (cache.enabledTypes.size === 0) {
+            // Nothing left — show all
+            for (const t of cache.allTypes) cache.enabledTypes.add(t);
+          }
+        } else {
+          // Off: turn it on (additive)
+          cache.enabledTypes.add(type);
         }
-      } else {
-        // Off: turn it on (additive)
-        cache.enabledTypes.add(type);
-      }
-      buildTypeChips();
-      applyFilters();
-      renderMessages();
+        buildTypeChips();
+        applyFilters();
+        renderMessages();
+      }, 220);
     });
 
     chip.addEventListener('dblclick', (e) => {
-      // Double-click: show all
+      // Double-click: show all — cancel any pending single-click action first.
       e.preventDefault();
+      clearTimeout(_chipClickTimer);
+      _chipClickTimer = null;
       for (const t of cache.allTypes) cache.enabledTypes.add(t);
       buildTypeChips();
       applyFilters();
@@ -354,6 +364,12 @@ function renderMessages() {
 
   requestAnimationFrame(() => {
     paint();
+    // Apply any deferred scroll-to-time request that arrived while the tab was hidden.
+    if (pendingMsgScrollTop != null) {
+      container.scrollTop = pendingMsgScrollTop;
+      pendingMsgScrollTop = null;
+      paint(); // repaint after scroll position change
+    }
     container.onscroll = paint;
   });
 }
@@ -473,7 +489,8 @@ function onPlotClick(t) {
   updateCursorDisplay();
   updateCursorOnPlots(t);
   updateMapCursor(t);
-  scrollMessagesToTime(t);
+  // Scroll the message list to sync the position but do NOT navigate away from the plots tab.
+  scrollMessagesToTime(t, false);
 }
 
 function onPlotZoom(range) {
@@ -485,7 +502,7 @@ function onPlotZoom(range) {
   }
 }
 
-function onZoomReset() {
+window.onZoomReset = function onZoomReset() {
   zoomRange = null;
   toolbarZoom.textContent = 'Full range';
   if (document.getElementById('link-zoom').checked) {
@@ -533,7 +550,7 @@ function updateMapCursor(t) {
   }
 }
 
-function scrollMessagesToTime(t) {
+function scrollMessagesToTime(t, switchTab) {
   if (!activeFile || !msgCache.has(activeFile)) return;
   const rows = msgCache.get(activeFile).filtered;
   if (!rows.length) return;
@@ -544,15 +561,24 @@ function scrollMessagesToTime(t) {
     if (rows[mid].t == null || rows[mid].t < t) lo = mid + 1; else hi = mid;
   }
 
-  // If not on messages tab, switch to it
-  if (currentTab !== 'messages') {
+  const targetScrollTop = Math.max(0, (lo - 3) * MSG_ROW_H);
+
+  // Only switch to messages tab when explicitly requested (switchTab === true).
+  // Clicking a plot to lock the cursor should NOT navigate away from the plots view.
+  if (switchTab && currentTab !== 'messages') {
     showTab('messages');
   }
 
-  requestAnimationFrame(() => {
-    const container = document.getElementById('msg-scroll');
-    container.scrollTop = Math.max(0, (lo - 3) * MSG_ROW_H);
-  });
+  if (currentTab === 'messages') {
+    requestAnimationFrame(() => {
+      const container = document.getElementById('msg-scroll');
+      container.scrollTop = targetScrollTop;
+    });
+  } else {
+    // Messages tab is hidden — store the scroll offset so it is applied
+    // the next time the Messages tab becomes visible and renderMessages() runs.
+    pendingMsgScrollTop = targetScrollTop;
+  }
 }
 
 // ── File management ──
@@ -576,6 +602,7 @@ function switchToFile(fname) {
   cursorLocked = false;
   selectedMsgIdx = null;
   zoomRange = null;
+  pendingMsgScrollTop = null;
   updateCursorDisplay();
   toolbarZoom.textContent = 'Full range';
 }
@@ -637,7 +664,7 @@ function renderQuicklook() {
   // Wire map click → time
   const mapEl = document.getElementById('sidebar-minimap');
   if (mapEl._rlf_clickHandler) {
-    mapEl.removeListener('plotly_click', mapEl._rlf_clickHandler);
+    mapEl.off('plotly_click', mapEl._rlf_clickHandler);
   }
   mapEl._rlf_clickHandler = function(ev) {
     if (!ev.points || !ev.points[0]) return;
@@ -653,7 +680,8 @@ function renderQuicklook() {
       updateCursorDisplay();
       updateCursorOnPlots(t);
       updateMapCursor(t);
-      scrollMessagesToTime(t);
+      // Map click: scroll messages but stay on the current tab.
+      scrollMessagesToTime(t, false);
     }
   };
   mapEl.on('plotly_click', mapEl._rlf_clickHandler);
@@ -707,15 +735,16 @@ document.addEventListener('keydown', (e) => {
   }
 
   if (e.key === 'Escape') {
-    if (cursorLocked) {
+    const modal = document.getElementById('keys-modal');
+    if (!modal.classList.contains('hidden')) {
+      modal.classList.add('hidden');
+    } else if (cursorLocked) {
       cursorLocked = false;
       cursorT = null;
       updateCursorDisplay();
       updateCursorOnPlots(null);
     } else if (selectedMsgIdx != null) {
       hideDetailPanel();
-    } else {
-      document.getElementById('keys-modal').classList.add('hidden');
     }
     return;
   }
@@ -726,14 +755,15 @@ document.addEventListener('keydown', (e) => {
     if (!activeFile || !msgCache.has(activeFile)) return;
     const rows = msgCache.get(activeFile).filtered;
     if (!rows.length) return;
+    const container = document.getElementById('msg-scroll');
     if (selectedMsgIdx == null) {
       selectMessage(0);
+      container.scrollTop = 0;
     } else {
       const next = e.key === 'ArrowDown'
         ? Math.min(rows.length - 1, selectedMsgIdx + 1)
         : Math.max(0, selectedMsgIdx - 1);
       selectMessage(next);
-      const container = document.getElementById('msg-scroll');
       const rowTop = next * MSG_ROW_H;
       if (rowTop < container.scrollTop + MSG_ROW_H) {
         container.scrollTop = Math.max(0, rowTop - MSG_ROW_H);
@@ -744,7 +774,7 @@ document.addEventListener('keydown', (e) => {
     return;
   }
 
-  if (e.key === 'Enter' && selectedMsgIdx != null) {
+  if (e.key === 'Enter' && selectedMsgIdx != null && activeFile) {
     const rows = msgCache.get(activeFile).filtered;
     const row = rows[selectedMsgIdx];
     if (row && row.t != null) {
@@ -758,14 +788,16 @@ document.addEventListener('keydown', (e) => {
   }
 
   if (e.key === 'f' || e.key === 'F') {
+    if (!activeFile) return;
     e.preventDefault();
     showTab('messages');
     requestAnimationFrame(() => msgSearch.focus());
     return;
   }
 
-  if (e.key === 'r' || e.key === 'R') { resetAllZoom(); return; }
+  if (e.key === 'r' || e.key === 'R') { if (activeFile) resetAllZoom(); return; }
   if (e.key === 'l' || e.key === 'L') {
+    if (!activeFile) return;
     const cb = document.getElementById('link-zoom');
     cb.checked = !cb.checked;
     applyFilters();
@@ -773,8 +805,8 @@ document.addEventListener('keydown', (e) => {
     return;
   }
 
-  if (e.key === '1') { showTab('plots'); return; }
-  if (e.key === '2') { showTab('messages'); return; }
+  if (e.key === '1') { if (activeFile) showTab('plots'); return; }
+  if (e.key === '2') { if (activeFile) showTab('messages'); return; }
 
   if (e.key === '?') {
     document.getElementById('keys-modal').classList.remove('hidden');

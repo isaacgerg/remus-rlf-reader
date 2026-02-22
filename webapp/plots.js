@@ -88,23 +88,29 @@ let _syncing = false;
 function syncXRange(sourceId, xRange) {
   if (_syncing) return;
   _syncing = true;
-  for (const id of TIME_PLOT_IDS) {
-    if (id === sourceId) continue;
-    const el = document.getElementById(id);
-    if (!el || !el.data || !el.data.length) continue;
-    Plotly.relayout(el, { 'xaxis.range': xRange });
+  try {
+    for (const id of TIME_PLOT_IDS) {
+      if (id === sourceId) continue;
+      const el = document.getElementById(id);
+      if (!el || !el.data || !el.data.length) continue;
+      Plotly.relayout(el, { 'xaxis.range': xRange });
+    }
+  } finally {
+    _syncing = false;
   }
-  _syncing = false;
 }
 
 function resetAllZoom() {
   _syncing = true;
-  for (const id of TIME_PLOT_IDS) {
-    const el = document.getElementById(id);
-    if (!el || !el.data || !el.data.length) continue;
-    Plotly.relayout(el, { 'xaxis.autorange': true, 'yaxis.autorange': true });
+  try {
+    for (const id of TIME_PLOT_IDS) {
+      const el = document.getElementById(id);
+      if (!el || !el.data || !el.data.length) continue;
+      Plotly.relayout(el, { 'xaxis.autorange': true, 'yaxis.autorange': true });
+    }
+  } finally {
+    _syncing = false;
   }
-  _syncing = false;
   // Notify app.js
   if (typeof window.onZoomReset === 'function') window.onZoomReset();
 }
@@ -114,6 +120,12 @@ function wireEvents(divId) {
   const el = document.getElementById(divId);
   if (!el) return;
 
+  // Track double-click timing to suppress the plotly_click that fires during a double-click.
+  // Plotly fires plotly_click once per mouse-down release, even when the user double-clicks.
+  // When the user double-clicks to reset zoom we must NOT treat it as a cursor lock/navigate.
+  let _lastClickTime = 0;
+  let _clickSuppressTimer = null;
+
   el.on('plotly_hover', function(ev) {
     if (ev.points && ev.points[0]) {
       const t = ev.points[0].x;
@@ -122,10 +134,26 @@ function wireEvents(divId) {
   });
 
   el.on('plotly_click', function(ev) {
-    if (ev.points && ev.points[0]) {
-      const t = ev.points[0].x;
-      if (typeof onPlotClick === 'function') onPlotClick(t);
+    if (!ev.points || !ev.points[0]) return;
+    const t = ev.points[0].x;
+    const now = Date.now();
+    const sinceLastClick = now - _lastClickTime;
+    _lastClickTime = now;
+
+    // If two plotly_click events arrive within 400 ms it is a double-click.
+    // Cancel the pending single-click action and do nothing here — the
+    // plotly_relayout double-click handler will call resetAllZoom() instead.
+    if (sinceLastClick < 400) {
+      clearTimeout(_clickSuppressTimer);
+      _clickSuppressTimer = null;
+      return;
     }
+
+    // Delay acting on a single click so a fast second click can cancel it.
+    _clickSuppressTimer = setTimeout(() => {
+      _clickSuppressTimer = null;
+      if (typeof onPlotClick === 'function') onPlotClick(t);
+    }, 220);
   });
 
   el.on('plotly_relayout', function(ev) {
@@ -135,7 +163,9 @@ function wireEvents(divId) {
       syncXRange(divId, range);
       if (typeof onPlotZoom === 'function') onPlotZoom(range);
     } else if (ev['xaxis.autorange']) {
-      // User double-clicked to reset this plot — reset all
+      // User double-clicked to reset this plot — cancel any pending single-click and reset all.
+      clearTimeout(_clickSuppressTimer);
+      _clickSuppressTimer = null;
       resetAllZoom();
     }
   });
