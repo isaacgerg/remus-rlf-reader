@@ -329,7 +329,12 @@ function renderMessages() {
     ? `${total.toLocaleString()} messages`
     : `${total.toLocaleString()} / ${totalAll.toLocaleString()}`;
 
-  if (total === 0) { body.innerHTML = ''; return; }
+  if (total === 0) {
+    body.innerHTML = '';
+    container.onscroll = null;
+    container.scrollTop = 0;
+    return;
+  }
 
   function paint() {
     const rows = msgCache.get(activeFile).filtered;
