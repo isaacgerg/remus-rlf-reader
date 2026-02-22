@@ -234,42 +234,17 @@ function buildTypeChips() {
   }).join('');
 
   container.querySelectorAll('.type-chip').forEach(chip => {
-    let _chipClickTimer = null;
-
-    chip.addEventListener('click', (e) => {
-      // Delay single-click action so a fast second click (double-click) can cancel it.
-      clearTimeout(_chipClickTimer);
-      _chipClickTimer = setTimeout(() => {
-        _chipClickTimer = null;
-        const type = chip.dataset.type;
-        const allOn = cache.enabledTypes.size === cache.allTypes.length;
-        if (allOn) {
-          // From "all on" state: click = solo this type
-          cache.enabledTypes.clear();
-          cache.enabledTypes.add(type);
-        } else if (cache.enabledTypes.has(type)) {
-          // Already on: turn it off
-          cache.enabledTypes.delete(type);
-          if (cache.enabledTypes.size === 0) {
-            // Nothing left — show all
-            for (const t of cache.allTypes) cache.enabledTypes.add(t);
-          }
-        } else {
-          // Off: turn it on (additive)
-          cache.enabledTypes.add(type);
+    chip.addEventListener('click', () => {
+      const type = chip.dataset.type;
+      if (cache.enabledTypes.has(type)) {
+        cache.enabledTypes.delete(type);
+        // Nothing left — restore all
+        if (cache.enabledTypes.size === 0) {
+          for (const t of cache.allTypes) cache.enabledTypes.add(t);
         }
-        buildTypeChips();
-        applyFilters();
-        renderMessages();
-      }, 220);
-    });
-
-    chip.addEventListener('dblclick', (e) => {
-      // Double-click: show all — cancel any pending single-click action first.
-      e.preventDefault();
-      clearTimeout(_chipClickTimer);
-      _chipClickTimer = null;
-      for (const t of cache.allTypes) cache.enabledTypes.add(t);
+      } else {
+        cache.enabledTypes.add(type);
+      }
       buildTypeChips();
       applyFilters();
       renderMessages();
@@ -323,7 +298,12 @@ document.getElementById('link-zoom').addEventListener('change', () => {
 document.getElementById('btn-select-all-types').addEventListener('click', () => {
   if (!activeFile || !msgCache.has(activeFile)) return;
   const cache = msgCache.get(activeFile);
-  for (const t of cache.allTypes) cache.enabledTypes.add(t);
+  const allOn = cache.enabledTypes.size === cache.allTypes.length;
+  if (allOn) {
+    cache.enabledTypes.clear();
+  } else {
+    for (const t of cache.allTypes) cache.enabledTypes.add(t);
+  }
   buildTypeChips();
   applyFilters();
   renderMessages();
