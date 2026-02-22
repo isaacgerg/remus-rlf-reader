@@ -35,6 +35,7 @@ let cursorT = null;
 let cursorLocked = false;
 let zoomRange = null;
 let selectedMsgIdx = null;
+let selectedMsgRawIdx = null;
 let missionRefTime = null;
 let pendingMsgScrollTop = null; // scroll offset to apply next time Messages tab renders
 
@@ -75,6 +76,12 @@ async function loadParserSource() {
 
 function initWorker() {
   worker = new Worker('parse_worker.js?v=' + Date.now());
+  worker.onerror = function(e) {
+    loading.classList.add('hidden');
+    loadingApp.classList.add('hidden');
+    if (fileStore.size === 0) landing.classList.remove('hidden');
+    alert('Worker error: ' + (e.message || 'unknown error'));
+  };
   worker.onmessage = function(e) {
     const msg = e.data;
     if (msg.type === 'status') {
@@ -288,6 +295,10 @@ function applyFilters() {
     }
     return true;
   });
+  if (selectedMsgRawIdx != null) {
+    selectedMsgIdx = cache.filtered.findIndex(r => r._idx === selectedMsgRawIdx);
+    if (selectedMsgIdx === -1) selectedMsgIdx = null;
+  }
 }
 
 // Search box
@@ -338,10 +349,11 @@ function renderMessages() {
   if (total === 0) { body.innerHTML = ''; return; }
 
   function paint() {
+    const rows = msgCache.get(activeFile).filtered;
     const scrollTop = container.scrollTop;
     const viewH = container.clientHeight;
     const startIdx = Math.max(0, Math.floor(scrollTop / MSG_ROW_H) - 5);
-    const endIdx = Math.min(total, Math.ceil((scrollTop + viewH) / MSG_ROW_H) + 5);
+    const endIdx = Math.min(rows.length, Math.ceil((scrollTop + viewH) / MSG_ROW_H) + 5);
 
     let html = '';
     for (let i = startIdx; i < endIdx; i++) {
@@ -353,7 +365,7 @@ function renderMessages() {
         const val = typeof v === 'number' ? (Number.isInteger(v) ? v : v.toFixed(4)) : v;
         return `${k}:${val}`;
       }).join('  ');
-      const selected = selectedMsgIdx === i ? ' selected' : '';
+      const selected = (r._idx === selectedMsgRawIdx) ? ' selected' : '';
       const cursorHl = (!cursorLocked && cursorT != null && r.t != null &&
         Math.abs(r.t - cursorT) < 0.0002) ? ' cursor-highlight' : '';
       html += `<div class="msg-row${selected}${cursorHl}" data-idx="${i}" style="top:${i * MSG_ROW_H}px;height:${MSG_ROW_H}px;border-left-color:${color}">` +
@@ -372,13 +384,12 @@ function renderMessages() {
   }
 
   requestAnimationFrame(() => {
-    paint();
     // Apply any deferred scroll-to-time request that arrived while the tab was hidden.
     if (pendingMsgScrollTop != null) {
       container.scrollTop = pendingMsgScrollTop;
       pendingMsgScrollTop = null;
-      paint(); // repaint after scroll position change
     }
+    paint();
     container.onscroll = paint;
   });
 }
@@ -390,6 +401,7 @@ function selectMessage(idx) {
   if (idx < 0 || idx >= rows.length) return;
 
   selectedMsgIdx = idx;
+  selectedMsgRawIdx = rows[idx]._idx;
   const row = rows[idx];
 
   if (row.t != null) {
@@ -469,6 +481,7 @@ function showDetailPanel(row, allRows) {
 function hideDetailPanel() {
   document.getElementById('detail-panel').classList.add('hidden');
   selectedMsgIdx = null;
+  selectedMsgRawIdx = null;
   renderMessages();
 }
 
@@ -574,6 +587,8 @@ function scrollMessagesToTime(t, switchTab) {
   const rows = msgCache.get(activeFile).filtered;
   if (!rows.length) return;
 
+  if (rows.every(r => r.t == null)) return;
+
   let lo = 0, hi = rows.length - 1;
   while (lo < hi) {
     const mid = (lo + hi) >> 1;
@@ -606,6 +621,13 @@ function switchToFile(fname) {
   const scrollEl = document.getElementById('msg-scroll');
   if (activeFile) scrollPositions.set(activeFile, scrollEl.scrollTop);
   activeFile = fname;
+  cursorT = null;
+  cursorLocked = false;
+  selectedMsgIdx = null;
+  selectedMsgRawIdx = null;
+  zoomRange = null;
+  pendingMsgScrollTop = null;
+  hideDetailPanel();
   const data = fileStore.get(fname);
   computeRefTime(data);
   toolbarFile.textContent = fname;
@@ -617,11 +639,6 @@ function switchToFile(fname) {
   applyFilters();
   if (currentTab === 'messages') renderMessages();
   scrollEl.scrollTop = scrollPositions.get(fname) || 0;
-  cursorT = null;
-  cursorLocked = false;
-  selectedMsgIdx = null;
-  zoomRange = null;
-  pendingMsgScrollTop = null;
   updateCursorDisplay();
   toolbarZoom.textContent = 'Full range';
 }
@@ -629,9 +646,11 @@ function switchToFile(fname) {
 function closeFile(fname) {
   fileStore.delete(fname);
   msgCache.delete(fname);
+  scrollPositions.delete(fname);
   if (fileStore.size === 0) {
     activeFile = null;
     summaryPanel.classList.add('hidden');
+    hideDetailPanel();
     appView.classList.add('hidden');
     landing.classList.remove('hidden');
     return;
@@ -692,8 +711,10 @@ function renderQuicklook() {
     const nav = data && data['Navigation'];
     if (!nav) return;
     const pIdx = pt.pointIndex;
-    if (pIdx != null && nav.t_hrs[pIdx] != null) {
-      const t = nav.t_hrs[pIdx];
+    const stride = Math.max(1, Math.ceil(nav.lat.length / 2000));
+    const origIdx = Math.min(pIdx * stride, nav.t_hrs.length - 1);
+    if (pIdx != null && nav.t_hrs[origIdx] != null) {
+      const t = nav.t_hrs[origIdx];
       cursorT = t;
       cursorLocked = true;
       updateCursorDisplay();
@@ -784,7 +805,7 @@ document.addEventListener('keydown', (e) => {
         : Math.max(0, selectedMsgIdx - 1);
       selectMessage(next);
       const rowTop = next * MSG_ROW_H;
-      if (rowTop < container.scrollTop + MSG_ROW_H) {
+      if (rowTop < container.scrollTop) {
         container.scrollTop = Math.max(0, rowTop - MSG_ROW_H);
       } else if (rowTop > container.scrollTop + container.clientHeight - MSG_ROW_H * 2) {
         container.scrollTop = rowTop - container.clientHeight + MSG_ROW_H * 2;
@@ -793,9 +814,9 @@ document.addEventListener('keydown', (e) => {
     return;
   }
 
-  if (e.key === 'Enter' && selectedMsgIdx != null && activeFile) {
+  if (e.key === 'Enter' && selectedMsgRawIdx != null && activeFile) {
     const rows = msgCache.get(activeFile).filtered;
-    const row = rows[selectedMsgIdx];
+    const row = rows.find(r => r._idx === selectedMsgRawIdx);
     if (row && row.t != null) {
       cursorT = row.t;
       cursorLocked = true;

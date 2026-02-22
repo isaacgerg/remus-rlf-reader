@@ -85,6 +85,7 @@ function updateCursorOnPlots(t) {
 
 // Sync x-axis range across all time-series plots
 let _syncing = false;
+const _allClickTimers = [];
 function syncXRange(sourceId, xRange) {
   if (_syncing) return;
   _syncing = true;
@@ -97,25 +98,31 @@ function syncXRange(sourceId, xRange) {
   setTimeout(() => { _syncing = false; }, 0);
 }
 
-function zoomAllTo(range) {
+function zoomAllTo(range, excludeId) {
   if (_syncing) return;
+  if (typeof onPlotZoom === 'function') onPlotZoom(range);
   _syncing = true;
   for (const id of TIME_PLOT_IDS) {
+    if (id === excludeId) continue;
     const el = document.getElementById(id);
     if (!el || !el.data || !el.data.length) continue;
     Plotly.relayout(el, { 'xaxis.range': range });
   }
   setTimeout(() => { _syncing = false; }, 0);
-  if (typeof onPlotZoom === 'function') onPlotZoom(range);
 }
 
 function resetAllZoom() {
   if (_syncing) return;
+  // Cancel all pending single-click timers on every plot
+  for (let i = _allClickTimers.length - 1; i >= 0; i--) {
+    clearTimeout(_allClickTimers[i]);
+  }
+  _allClickTimers.length = 0;
   _syncing = true;
   for (const id of TIME_PLOT_IDS) {
     const el = document.getElementById(id);
     if (!el || !el.data || !el.data.length) continue;
-    Plotly.relayout(el, { 'xaxis.autorange': true, 'yaxis.autorange': true });
+    Plotly.relayout(el, { 'xaxis.autorange': true, 'yaxis.autorange': true, 'yaxis2.autorange': true });
   }
   // Keep _syncing true for a tick so the plotly_relayout events that fire
   // synchronously from the relayout calls above don't re-enter resetAllZoom.
@@ -161,8 +168,11 @@ function wireEvents(divId) {
     // Delay acting on a single click so a fast second click can cancel it.
     _clickSuppressTimer = setTimeout(() => {
       _clickSuppressTimer = null;
+      const idx = _allClickTimers.indexOf(_clickSuppressTimer);
+      if (idx !== -1) _allClickTimers.splice(idx, 1);
       if (typeof onPlotClick === 'function') onPlotClick(t);
     }, 220);
+    _allClickTimers.push(_clickSuppressTimer);
   });
 
   el.on('plotly_relayout', function(ev) {
@@ -171,7 +181,7 @@ function wireEvents(divId) {
       const range = [ev['xaxis.range[0]'], ev['xaxis.range[1]']];
       syncXRange(divId, range);
       if (typeof onPlotZoom === 'function') onPlotZoom(range);
-    } else if (ev['xaxis.autorange'] && !_syncing) {
+    } else if ((ev['xaxis.autorange'] || ev['autosize']) && !_syncing) {
       // User double-clicked to reset this plot — cancel any pending single-click and reset all.
       clearTimeout(_clickSuppressTimer);
       _clickSuppressTimer = null;
@@ -235,9 +245,10 @@ function plotDepth(data) {
     const at = []; const bd = [];
     for (let i = 0; i < n; i++) {
       const alt = adcp.altitude[i];
-      if (isFinite(alt) && alt > 0 && alt < 40) {
+      const dep = adcp.depth[i];
+      if (isFinite(alt) && alt > 0 && alt < 40 && isFinite(dep) && dep > -32) {
         at.push(nav.t_hrs[0] + (nav.t_hrs[nav.t_hrs.length-1] - nav.t_hrs[0]) * i / (n-1));
-        bd.push(adcp.depth[i] + alt);
+        bd.push(dep + alt);
       }
     }
     traces.push({ x: ds(at, MAX), y: ds(bd, MAX), type: 'scatter', mode: 'lines', line: { color: COLORS.brown, width: 1 }, name: 'Seafloor' });
@@ -301,7 +312,8 @@ function plotAttitude(data) {
   if (!adcp || !nav) return;
   const n = adcp.heading.length;
   const t0 = nav.t_hrs[0], t1 = nav.t_hrs[nav.t_hrs.length - 1];
-  const t = []; for (let i = 0; i < n; i++) t.push(t0 + (t1 - t0) * i / (n - 1));
+  const t = [];
+  if (n <= 1) { t.push(t0); } else { for (let i = 0; i < n; i++) t.push(t0 + (t1 - t0) * i / (n - 1)); }
   Plotly.newPlot('plot-attitude', [
     { x: ds(t, MAX), y: ds(adcp.heading, MAX), type: 'scatter', mode: 'lines', line: { color: COLORS.navy, width: 1 }, name: 'Heading', yaxis: 'y' },
     { x: ds(t, MAX), y: ds(adcp.pitch, MAX), type: 'scatter', mode: 'lines', line: { color: COLORS.orange, width: 1 }, name: 'Pitch', yaxis: 'y2' },
@@ -334,7 +346,7 @@ function plotSidescan(data) {
   const lon = [], lat = [], bd = [];
   for (let i = 0; i < ss.depth.length; i++) {
     const a = ss.altitude[i], d = ss.depth[i];
-    if (isFinite(a) && isFinite(d) && a > 0 && a < 30) {
+    if (isFinite(a) && isFinite(d) && a > 0 && a < 30 && d > -32) {
       lon.push(ss.lon[i]); lat.push(ss.lat[i]); bd.push(d + a);
     }
   }
@@ -387,8 +399,9 @@ function plotDVL(data) {
   const nav = data['Navigation'];
   if (!adcp || !nav) return;
   const n = adcp.altitude.length;
-  const tEnd = nav.t_hrs[nav.t_hrs.length - 1];
-  const t = []; for (let i = 0; i < n; i++) t.push(tEnd * i / (n - 1));
+  const t0 = nav.t_hrs[0], tEnd = nav.t_hrs[nav.t_hrs.length - 1];
+  const t = [];
+  if (n <= 1) { t.push(t0); } else { for (let i = 0; i < n; i++) t.push(t0 + (tEnd - t0) * i / (n - 1)); }
 
   const valid = adcp.altitude.map(a => (isFinite(a) && a > 0 && a < 40) ? 1 : 0);
   const win = Math.max(1, Math.round(5 / 60 / tEnd * n));
@@ -419,11 +432,12 @@ function plotBattery(data) {
   const tEnd = nav.t_hrs[nav.t_hrs.length - 1];
   const n = batt.length;
 
+  const t0batt = nav.t_hrs[0];
   const groups = {};
   for (let i = 0; i < n; i++) {
     const id = batt[i].batt_id;
     if (!groups[id]) groups[id] = { t: [], v: [] };
-    groups[id].t.push(tEnd * i / (n - 1));
+    groups[id].t.push(n <= 1 ? t0batt : t0batt + (tEnd - t0batt) * i / (n - 1));
     groups[id].v.push((batt[i].pack_mv || 0) / 1000);
   }
 
