@@ -179,6 +179,8 @@ function buildMessageList(data) {
   for (const [type, rec] of Object.entries(data)) {
     if (skip.has(type)) continue;
     if (Array.isArray(rec)) {
+      // Skip raw-payload arrays (unknown record types serialized as byte strings)
+      if (rec.length > 0 && typeof rec[0] === 'string') continue;
       for (const entry of rec) {
         const t = entry.t_hrs != null ? entry.t_hrs : null;
         const fields = {};
