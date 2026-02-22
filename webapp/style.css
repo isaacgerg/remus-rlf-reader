@@ -139,6 +139,13 @@ body {
   transition: border-color 0.15s, color 0.15s;
 }
 .add-file-btn:hover { border-color: var(--accent); color: var(--accent); }
+.sidebar-drop-hint {
+  font-size: 0.68rem;
+  color: var(--muted);
+  text-align: center;
+  margin-top: 0.3rem;
+  opacity: 0.7;
+}
 
 /* Right pane */
 .right-pane {
