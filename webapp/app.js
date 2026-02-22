@@ -179,9 +179,18 @@ function buildMessageList(data) {
   for (const [type, rec] of Object.entries(data)) {
     if (skip.has(type)) continue;
     if (Array.isArray(rec)) {
-      // Skip raw-payload arrays (unknown record types serialized as byte strings)
-      if (rec.length > 0 && typeof rec[0] === 'string') continue;
+      // Plain string arrays (e.g. Sensor Names decoder returns ['RDI ADCP', ...])
+      // — show each as a single-field row rather than iterating characters.
+      if (rec.length > 0 && typeof rec[0] === 'string') {
+        for (const name of rec) {
+          rows.push({ t: null, type, fields: { name } });
+        }
+        continue;
+      }
+      // Raw-payload byte arrays for unknown record types — skip entirely.
+      if (rec.length > 0 && typeof rec[0] === 'number') continue;
       for (const entry of rec) {
+        if (typeof entry !== 'object' || entry === null) continue;
         const t = entry.t_hrs != null ? entry.t_hrs : null;
         const fields = {};
         for (const [k, v] of Object.entries(entry)) {
