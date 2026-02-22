@@ -11,6 +11,12 @@ Format derived from analysis of the [Makua Beach dataset](https://doi.org/10.607
 
 > **🚀 [Try the Web Viewer](https://isaacgerg.github.io/remus-rlf-reader/webapp/)** — Browser-based interactive explorer: drag-drop RLF file upload, 12 linked Plotly plots with synced cursors and zoom, virtual-scrolled message browser with search and type filtering. All parsing runs client-side via Pyodide (Python in WebAssembly) — no data leaves your browser.
 
+### Web Viewer Screenshots
+
+| Plots tab | Messages tab |
+|-----------|--------------|
+| ![Plots view](screenshots/screenshot_1.png) | ![Messages view](screenshots/screenshot_2.png) |
+
 ![Example diagnostic plot](rlf_final_comprehensive.png)
 ![Data quality plot](rlf_quality.png)
 
