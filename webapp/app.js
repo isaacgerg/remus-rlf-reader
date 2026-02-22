@@ -229,8 +229,11 @@ function buildTypeChips() {
   container.innerHTML = types.map(type => {
     const color = typeColor(type);
     const on = cache.enabledTypes.has(type);
-    return `<span class="type-chip ${on ? 'on' : ''}" data-type="${type}" style="${on ? 'color:' + color + ';border-color:' + color : ''}">` +
-      `<span class="chip-dot" style="background:${color}"></span>${type}</span>`;
+    const chipStyle = on
+      ? `background:${color};border-color:${color};color:#fff;`
+      : `background:var(--bg);border-color:var(--border);color:var(--muted);`;
+    return `<span class="type-chip ${on ? 'on' : ''}" data-type="${type}" style="${chipStyle}">` +
+      `<span class="chip-dot" style="background:${on ? '#fff' : color};opacity:${on ? '0.8' : '1'}"></span>${type}</span>`;
   }).join('');
 
   container.querySelectorAll('.type-chip').forEach(chip => {
