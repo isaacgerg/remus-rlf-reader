@@ -238,10 +238,6 @@ function buildTypeChips() {
       const type = chip.dataset.type;
       if (cache.enabledTypes.has(type)) {
         cache.enabledTypes.delete(type);
-        // Nothing left — restore all
-        if (cache.enabledTypes.size === 0) {
-          for (const t of cache.allTypes) cache.enabledTypes.add(t);
-        }
       } else {
         cache.enabledTypes.add(type);
       }
@@ -298,12 +294,16 @@ document.getElementById('link-zoom').addEventListener('change', () => {
 document.getElementById('btn-select-all-types').addEventListener('click', () => {
   if (!activeFile || !msgCache.has(activeFile)) return;
   const cache = msgCache.get(activeFile);
-  const allOn = cache.enabledTypes.size === cache.allTypes.length;
-  if (allOn) {
-    cache.enabledTypes.clear();
-  } else {
-    for (const t of cache.allTypes) cache.enabledTypes.add(t);
-  }
+  for (const t of cache.allTypes) cache.enabledTypes.add(t);
+  buildTypeChips();
+  applyFilters();
+  renderMessages();
+});
+
+document.getElementById('btn-select-no-types').addEventListener('click', () => {
+  if (!activeFile || !msgCache.has(activeFile)) return;
+  const cache = msgCache.get(activeFile);
+  cache.enabledTypes.clear();
   buildTypeChips();
   applyFilters();
   renderMessages();
