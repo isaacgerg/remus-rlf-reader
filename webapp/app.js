@@ -309,6 +309,15 @@ document.getElementById('link-zoom').addEventListener('change', () => {
   renderMessages();
 });
 
+document.getElementById('btn-select-all-types').addEventListener('click', () => {
+  if (!activeFile || !msgCache.has(activeFile)) return;
+  const cache = msgCache.get(activeFile);
+  for (const t of cache.allTypes) cache.enabledTypes.add(t);
+  buildTypeChips();
+  applyFilters();
+  renderMessages();
+});
+
 // ── Virtual-scroll messages ──
 function renderMessages() {
   if (!activeFile || !msgCache.has(activeFile)) return;
@@ -513,6 +522,16 @@ window.onZoomReset = function onZoomReset() {
 
 document.getElementById('btn-reset-zoom').addEventListener('click', () => {
   resetAllZoom();
+});
+
+document.getElementById('btn-zoom-out').addEventListener('click', () => {
+  if (!activeFile) return;
+  if (!zoomRange) return; // already at full range
+  const span = zoomRange[1] - zoomRange[0];
+  const mid = (zoomRange[0] + zoomRange[1]) / 2;
+  const newSpan = span * 1.5;
+  const newRange = [mid - newSpan / 2, mid + newSpan / 2];
+  zoomAllTo(newRange);
 });
 
 // ── Map cursor dot ──

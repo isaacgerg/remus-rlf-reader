@@ -100,6 +100,20 @@ function syncXRange(sourceId, xRange) {
   }
 }
 
+function zoomAllTo(range) {
+  _syncing = true;
+  try {
+    for (const id of TIME_PLOT_IDS) {
+      const el = document.getElementById(id);
+      if (!el || !el.data || !el.data.length) continue;
+      Plotly.relayout(el, { 'xaxis.range': range });
+    }
+  } finally {
+    _syncing = false;
+  }
+  if (typeof onPlotZoom === 'function') onPlotZoom(range);
+}
+
 function resetAllZoom() {
   _syncing = true;
   try {
