@@ -99,7 +99,6 @@ function syncXRange(sourceId, xRange) {
 }
 
 function zoomAllTo(range, excludeId) {
-  if (_syncing) return;
   if (typeof onPlotZoom === 'function') onPlotZoom(range);
   _syncing = true;
   for (const id of TIME_PLOT_IDS) {
@@ -112,7 +111,6 @@ function zoomAllTo(range, excludeId) {
 }
 
 function resetAllZoom() {
-  if (_syncing) return;
   // Cancel all pending single-click timers on every plot
   for (let i = _allClickTimers.length - 1; i >= 0; i--) {
     clearTimeout(_allClickTimers[i]);
@@ -166,13 +164,14 @@ function wireEvents(divId) {
     }
 
     // Delay acting on a single click so a fast second click can cancel it.
-    _clickSuppressTimer = setTimeout(() => {
+    const timerId = setTimeout(() => {
       _clickSuppressTimer = null;
-      const idx = _allClickTimers.indexOf(_clickSuppressTimer);
+      const idx = _allClickTimers.indexOf(timerId);
       if (idx !== -1) _allClickTimers.splice(idx, 1);
       if (typeof onPlotClick === 'function') onPlotClick(t);
     }, 220);
-    _allClickTimers.push(_clickSuppressTimer);
+    _clickSuppressTimer = timerId;
+    _allClickTimers.push(timerId);
   });
 
   el.on('plotly_relayout', function(ev) {
