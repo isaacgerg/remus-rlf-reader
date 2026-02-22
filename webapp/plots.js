@@ -88,43 +88,38 @@ let _syncing = false;
 function syncXRange(sourceId, xRange) {
   if (_syncing) return;
   _syncing = true;
-  try {
-    for (const id of TIME_PLOT_IDS) {
-      if (id === sourceId) continue;
-      const el = document.getElementById(id);
-      if (!el || !el.data || !el.data.length) continue;
-      Plotly.relayout(el, { 'xaxis.range': xRange });
-    }
-  } finally {
-    _syncing = false;
+  for (const id of TIME_PLOT_IDS) {
+    if (id === sourceId) continue;
+    const el = document.getElementById(id);
+    if (!el || !el.data || !el.data.length) continue;
+    Plotly.relayout(el, { 'xaxis.range': xRange });
   }
+  setTimeout(() => { _syncing = false; }, 0);
 }
 
 function zoomAllTo(range) {
+  if (_syncing) return;
   _syncing = true;
-  try {
-    for (const id of TIME_PLOT_IDS) {
-      const el = document.getElementById(id);
-      if (!el || !el.data || !el.data.length) continue;
-      Plotly.relayout(el, { 'xaxis.range': range });
-    }
-  } finally {
-    _syncing = false;
+  for (const id of TIME_PLOT_IDS) {
+    const el = document.getElementById(id);
+    if (!el || !el.data || !el.data.length) continue;
+    Plotly.relayout(el, { 'xaxis.range': range });
   }
+  setTimeout(() => { _syncing = false; }, 0);
   if (typeof onPlotZoom === 'function') onPlotZoom(range);
 }
 
 function resetAllZoom() {
+  if (_syncing) return;
   _syncing = true;
-  try {
-    for (const id of TIME_PLOT_IDS) {
-      const el = document.getElementById(id);
-      if (!el || !el.data || !el.data.length) continue;
-      Plotly.relayout(el, { 'xaxis.autorange': true, 'yaxis.autorange': true });
-    }
-  } finally {
-    _syncing = false;
+  for (const id of TIME_PLOT_IDS) {
+    const el = document.getElementById(id);
+    if (!el || !el.data || !el.data.length) continue;
+    Plotly.relayout(el, { 'xaxis.autorange': true, 'yaxis.autorange': true });
   }
+  // Keep _syncing true for a tick so the plotly_relayout events that fire
+  // synchronously from the relayout calls above don't re-enter resetAllZoom.
+  setTimeout(() => { _syncing = false; }, 0);
   // Notify app.js
   if (typeof window.onZoomReset === 'function') window.onZoomReset();
 }
@@ -176,7 +171,7 @@ function wireEvents(divId) {
       const range = [ev['xaxis.range[0]'], ev['xaxis.range[1]']];
       syncXRange(divId, range);
       if (typeof onPlotZoom === 'function') onPlotZoom(range);
-    } else if (ev['xaxis.autorange']) {
+    } else if (ev['xaxis.autorange'] && !_syncing) {
       // User double-clicked to reset this plot — cancel any pending single-click and reset all.
       clearTimeout(_clickSuppressTimer);
       _clickSuppressTimer = null;
