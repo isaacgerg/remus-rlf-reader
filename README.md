@@ -39,7 +39,7 @@ Each `.RLF` file is a stream of binary records with an 8-byte header:
 ```
 Offset  Size  Type       Description
 0       2     uint8[2]   Magic bytes: 0xEB 0x90
-2       2     uint16 LE  Checksum
+2       2     uint16 LE  Checksum (signed-byte sum of type+length+payload)
 4       2     uint16 LE  Record type
 6       2     uint16 LE  Payload length (bytes)
 8       N     bytes      Payload
