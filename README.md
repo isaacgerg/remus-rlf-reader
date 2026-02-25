@@ -77,12 +77,25 @@ Offset  Size  Type       Description
 | 0x041c  | 1052 | Data Channels         | Channel index, name, and logging rate |
 | 0x043d  | 1085 | ECO Calibration       | Scale and offset coefficients per ECO channel |
 
-**Vehicle health**
+**Vehicle health and diagnostics**
 
-| Type    | Dec  | Name               | Description |
-|---------|------|--------------------|-------------|
-| 0x0412  | 1042 | Battery Status     | LiION pack voltage, cell voltage, chemistry, serial, mfg date |
-| 0x0413  | 1043 | Battery Cell Data  | Per-cell voltage counts for all 4 battery banks |
+| Type    | Dec  | Name                | Description |
+|---------|------|---------------------|-------------|
+| 0x0412  | 1042 | Battery Status      | LiION pack voltage, cell voltage, chemistry, serial, mfg date |
+| 0x0413  | 1043 | Battery Cell Data   | Per-cell voltage counts for all 4 battery banks |
+| 0x0402  | 1026 | Energy Monitor      | Battery capacity and cumulative energy consumed (Wh) |
+| 0x040e  | 1038 | Housing Temperature | Electronics housing temp (~30 C) and compass error FIFO |
+| 0x0415  | 1045 | Compass Calibration | Heading bias measurements; reference headings match .ini config |
+| 0x040b  | 1035 | DVL Status          | ADCP/DVL subsystem diagnostics (logged as raw hex) |
+| 0x0408  | 1032 | Subsystem Mode      | Mode/status flag register (logged as raw hex) |
+
+**Mission control**
+
+| Type    | Dec  | Name                 | Description |
+|---------|------|----------------------|-------------|
+| 0x03f1  | 1009 | Objective Navigation | Real-time leg progress: FROM/TO positions, RPM, speed, mode |
+| 0x0446  | 1094 | Startup Flag         | Startup marker (constant, exactly 10 per mission) |
+| 0x03ef  | 1007 | Event Marker         | Empty-payload phase transition marker (~9 per mission) |
 
 **Event and diagnostic logs**
 
@@ -91,20 +104,8 @@ Offset  Size  Type       Description
 | 0x03e9  | 1001 | Diagnostic Log     | Vehicle software warnings and status messages |
 | 0x0424  | 1060 | Acoustic Modem Log | Inbound/outbound acoustic modem messages |
 
-### Unknown record types
-
-The following record types were observed but could not be decoded:
-
-| Type    | Dec  | Count/day | Bytes | Notes |
-|---------|------|-----------|-------|-------|
-| 0x03f1  | 1009 | ~454      | 53    | Dense binary; structure unclear |
-| 0x040e  | 1038 | ~267      | 48    | f32@8 ≈ 30°C (possibly housing temperature); remaining fields unknown |
-| 0x0402  | 1026 | ~864      | 13    | First 4 bytes constant; remainder unidentified |
-| 0x0415  | 1045 | ~198      | 48    | Round-robin counter 1–5; float arrays in 0–360 range (possibly fin angles) |
-| 0x040b  | 1035 | ~71       | 60    | Mostly zeros with sparse structured bytes |
-| 0x0408  | 1032 | ~37       | 6     | 6-byte records with minimal variation |
-| 0x0446  | 1094 | ~10       | 4     | Constant `01 00 00 00` — simple flag or mode marker |
-| 0x03ef  | 1007 | ~9        | 0     | Empty payload — event marker or heartbeat |
+All 32 record types observed in the data are now decoded (no unknowns remain).
+DVL Status and Subsystem Mode are stored as raw hex pending further analysis.
 
 ---
 
