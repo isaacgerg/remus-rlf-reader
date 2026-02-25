@@ -102,18 +102,17 @@ Most record payloads contain a uint32 timestamp at payload byte offset 16.
   0x041c   1052  Data Channels           24    ~260
   0x043d   1085  ECO Calibration         46    ~80
 
-  UNKNOWN / UNDECODED RECORD TYPES
-  Type     Dec   Bytes  Count/Day  Notes
-  ------   ----  -----  ---------  ------------------------------------------
-  0x03f1   1009   53     ~454      Dense binary; structure unclear
-  0x040e   1038   48     ~267      f32@8 ≈ 30°C (housing temp?); rest unknown
-  0x0402   1026   13     ~864      First 4 bytes constant; remainder unknown
-  0x0415   1045   48     ~198      Round-robin counter 1-5; floats 0-360 range
-                                   (possibly fin angles or control surface data)
-  0x040b   1035   60     ~71       Mostly zeros with sparse structured bytes
-  0x0408   1032    6     ~37       6-byte records with minimal variation
-  0x0446   1094    4     ~10       Constant 01 00 00 00 — flag or mode marker
-  0x03ef   1007    0     ~9        Empty payload — event marker or heartbeat
+  MISSION CONTROL AND DIAGNOSTICS
+  Type     Dec   Name                   Bytes  Rate       Records/Mission
+  ------   ----  --------------------   -----  ---------  ---------------
+  0x0402   1026  Energy Monitor          13    ~0.05 Hz   ~864
+  0x03f1   1009  Objective Navigation    53    ~0.03 Hz   ~454
+  0x040e   1038  Housing Temperature     48    ~0.02 Hz   ~267
+  0x0415   1045  Compass Calibration     48    ~0.01 Hz   ~198
+  0x040b   1035  DVL Status              60    sparse     ~71
+  0x0408   1032  Subsystem Mode           6    sparse     ~37
+  0x0446   1094  Startup Flag             4    startup    10
+  0x03ef   1007  Event Marker             0    sparse     ~9
 
 
 4. RECORD TYPE FIELD SPECIFICATIONS
@@ -134,16 +133,23 @@ The highest-rate record, providing vehicle position and flight state at ~18 Hz.
   8       8     float64 LE  Longitude           degrees E (negative = W)
   16      4     uint32 LE   Timestamp           ms since midnight UTC
   20      4     float32 LE  Speed               m/s (ground speed)
-  24      2     uint16 LE   Altitude            m above bottom (integer)
-  26      8     —           Undecoded           (bearing/heading related)
+  24      2     uint16 LE   Alt max range       altimeter max range config (constant 10)
+  26      4     float32 LE  Pitch               degrees (confirmed via ADCP cross-validation)
+  30      4     float32 LE  Config constant     always 90.0 (altimeter param?)
   34      4     float32 LE  Vehicle depth       m below sea surface
-  38      4     —           Undecoded           (constant-like field)
-  42      4     float32 LE  Pitch               degrees
+  38      4     float32 LE  Depth duplicate     byte-identical to offset 34
+  42      4     float32 LE  Undecoded           float (mean ~-7, range ±23; not pitch/roll/depth)
 
   Notes:
-  - Altitude at offset 24 is often saturated at the Imagenex 852 altimeter
-    max range setting (10 m per config). When the vehicle is more than 10 m
-    above the bottom, this field reads the max range value, not true altitude.
+  - Offset 24: constant 10 in all records across all 4 missions — this is
+    the Imagenex 852 altimeter max range config setting, not actual altitude.
+  - Pitch at offset 26: confirmed by cross-validation with ADCP pitch
+    (value range [-18.1, 25.6] and mean -1.76 match ADCP pitch exactly).
+  - Offset 42: identity unknown. Mean ~-7, range ±23, does not correlate
+    with ADCP pitch, ADCP roll, or depth. Previously mislabeled as "Pitch".
+  - Offset 30: constant 90.0 across all records (1 unique value).
+  - Offset 38: exact byte-for-byte duplicate of offset 34 in all 292,749
+    records tested (max absolute diff = 0.000000).
   - Lat/Lon use float64 (double) precision (~1 cm resolution).
   - Observed ranges: lat 21.50-21.52°N, lon -158.24 to -158.23°W
     (Makua Beach, O'ahu, Hawaii).
@@ -159,7 +165,9 @@ High-rate CTD data from the onboard YSI sensor.
   0       8     float64 LE  Latitude            degrees N
   8       8     float64 LE  Longitude           degrees E
   16      4     uint32 LE   Timestamp           ms since midnight UTC
-  20      4     —           Undecoded           (padding or flag)
+  20      4     float32 LE  Unknown float       range 0.02-42; median ~4 when
+                                                submerged; NOT correlated with
+                                                nav depth (r = -0.07)
   24      4     float32 LE  Conductivity        mS/cm
   28      4     float32 LE  Temperature         degrees C
   32      4     float32 LE  Salinity            PSU (Practical Salinity Units)
@@ -315,7 +323,7 @@ Channel configuration (from 130906.ini):
   33      4     float32 LE  Beta470             1/m/sr (derived, ~0.001)
   37      4     float32 LE  Ref650              raw counts (~719)
   41      4     float32 LE  Lambda650           raw signal counts (~160)
-  45      4     —           Undecoded
+  45      4     float32 LE  Beta650             1/m/sr (derived, ~0.0001)
   49      4     float32 LE  Chlorophyll proxy   derived value (~-0.1)
   53      4     float32 LE  Thermistor          raw counts (~526)
 
@@ -524,6 +532,153 @@ individual cell-level voltage readings from the BMS.
     ID code at offset 18 matches the ID code at offset 2 in 0x0412.
 
 
+4.13  Objective Navigation — Type 0x03f1 (1009), 53 bytes
+--------------------------------------------------------------------------------
+
+Real-time mission leg progress tracking.  Each record reports the current
+from-waypoint and to-waypoint navigation state for the active objective.
+
+  Offset  Size  Type        Field               Units / Notes
+  ------  ----  ----------  ------------------  ----------------------------
+  0       1     uint8       Leg index           0-45, sequential then cycling
+  2       2     uint16 LE   Transit time est.   seconds
+  4       2     uint16 LE   Leg distance est.   meters (approximate; 5-15%
+                                                larger than haversine)
+  6       8     float64 LE  FROM latitude       degrees N
+  14      8     float64 LE  FROM longitude      degrees E
+  22      8     float64 LE  TO latitude         degrees N
+  30      8     float64 LE  TO longitude        degrees E
+  38      4     float32 LE  Commanded RPM       1736 or 1929
+  42      4     float32 LE  Commanded speed     m/s (typically 0 or 4)
+  46      1     uint8       Mission mode index  cross-refs 0x03ee mode table
+  48      1     uint8       Objective sub-type
+  50      2     uint16 LE   Depth setpoint      dm (e.g. 40 = 4.0 m)
+  52      1     uint8       Active flag         0=startup, 1=executing
+
+  Notes:
+  - Leg distance at offset 4 is an internal estimate, NOT exact haversine:
+    it typically runs 5-15% larger (e.g., 705 m vs 749 m haversine).
+  - Mode indices cross-reference the Mission Modes table (0x03ee):
+    observed values {11,13,14,15} → {Surface, Compass cal, Navigate,
+    Navigate rows}.
+  - Bytes 1, 47, 49 are always zero.
+
+
+4.14  Compass Calibration — Type 0x0415 (1045), 48 bytes
+--------------------------------------------------------------------------------
+
+Compass bias measurement data logged during the compass calibration phase.
+Reference headings at offset 4 exactly match the .ini compass bias table
+entries (254.8°, 95.0°, 275.0°, 185.0°, 5.0°, 74.8° on 130906; 34.7°
+replaces 74.8° on 130907).
+
+  Offset  Size  Type        Field               Units / Notes
+  ------  ----  ----------  ------------------  ----------------------------
+  2       2     uint16 LE   Measurement counter 1-N per heading, resets each
+  4       4     float32 LE  Reference heading   degrees (from .ini bias table)
+  8       4     float32 LE  Sensor reading #1   range 100-290 (NOT heading;
+                                                corr 0.87 with @32; possibly
+                                                raw magnetometer)
+  12      4     float32 LE  Sensor reading #2   similar to @8
+  16      4     float32 LE  Measured heading     degrees (clusters near ref)
+  20      4     float32 LE  Corrected heading    degrees (clusters near ref)
+  24      4     float32 LE  Heading error #1     bias correction (degrees)
+  28      4     float32 LE  Heading error #2     secondary error (degrees)
+  32      4     float32 LE  Sensor/motor metric  range 1000-3900
+  36      4     float32 LE  Sensor/motor metric  range 88-326 (corr 0.93
+                                                with @32)
+  40      4     float32 LE  Depth               m (~7-11 during cal)
+  44      4     float32 LE  Valid flag           constant 1.0
+
+  Verification:
+  Mean heading errors by reference heading match .ini bias corrections:
+    Ref 254.8° → mean err -1.05° (ini: -1.0)
+    Ref  95.0° → mean err -1.28° (ini: -1.1)
+    Ref 275.0° → mean err +0.38° (ini: +0.5)
+    Ref 185.0° → mean err +0.07° (ini: +0.3)
+    Ref   5.0° → mean err -0.66° (ini: -0.7)
+    Ref  74.8° → mean err -2.03° (ini: -1.9)
+
+
+4.15  Housing Temperature — Type 0x040e (1038), 48 bytes
+--------------------------------------------------------------------------------
+
+Electronics housing temperature with a sliding FIFO window of compass
+error magnitude history.
+
+  Offset  Size  Type        Field               Units / Notes
+  ------  ----  ----------  ------------------  ----------------------------
+  0       4     float32 LE  Heading correction  signed, ±16° (compass adj)
+  4       4     float32 LE  Bias drift          negative (-0.4 to -5.7)
+  8       4     float32 LE  Housing temperature °C (~30°C, stable)
+  12      4     float32 LE  Newest FIFO entry   compass error magnitude
+  16-44   32    float32[8]  FIFO history        right-shifting window
+
+  Notes:
+  - Housing temperature stable at ~30°C across all four RLF files
+    (130906, 130907, 130907R, 130908).
+  - FIFO right-shift verified across all files: 266/266 on 130906,
+    360/361 on 130907, 62/62 on 130907R, 329/329 on 130908.  New values
+    enter at offset 12 and shift right through 16→20→24→...→44.
+
+
+4.16  Energy Monitor — Type 0x0402 (1026), 13 bytes
+--------------------------------------------------------------------------------
+
+Battery energy consumption tracking at ~0.05 Hz (~864 records/mission).
+
+  Offset  Size  Type        Field               Units / Notes
+  ------  ----  ----------  ------------------  ----------------------------
+  0       1     uint8       Constant            always 7
+  1       4     float32 LE  Capacity            Wh (see notes)
+  5       4     float32 LE  Energy metric       Wh (see notes)
+  9       4     float32 LE  Status metric       varies (see notes)
+
+  Notes:
+  - The capacity field likely represents total available capacity of N
+    active battery packs at ~309 Wh each:
+      1235.86 / 4 = 309.0 Wh/pack
+       930.69 / 3 = 310.2 Wh/pack
+       613.14 / 2 = 306.6 Wh/pack
+    (verified across 130906, 130907, 130908).
+  - On 130906: all 4 packs remained active (capacity constant 1235.86),
+    energy monotonically increasing 276→1010 Wh.
+  - On 130907/130908: packs dropped out mid-mission, causing capacity
+    drops and energy resets.
+
+
+4.17  DVL Status — Type 0x040b (1035), 60 bytes
+--------------------------------------------------------------------------------
+
+ADCP/DVL subsystem internal status/diagnostics.  ~71 records per mission.
+First 22 bytes are mostly zeros (byte 11 = constant 8).  Active region at
+bytes 23-50 with structured status data.  Internal format not fully
+determined; logged as raw hex.
+
+
+4.18  Subsystem Mode — Type 0x0408 (1032), 6 bytes
+--------------------------------------------------------------------------------
+
+Sparse mode/status flag register.  ~37 records per mission.  Only two
+patterns observed on 130906:
+  04 b0 80 82 05 00  — active mode (27 occurrences)
+  04 a0 80 00 00 00  — idle/startup mode (10 occurrences)
+
+
+4.19  Startup Flag — Type 0x0446 (1094), 4 bytes
+--------------------------------------------------------------------------------
+
+Constant payload: 01 00 00 00.  Logged exactly 10 times per mission, the
+same count as Vehicle Name records.  Startup/initialization marker.
+
+
+4.20  Event Marker — Type 0x03ef (1007), 0 bytes
+--------------------------------------------------------------------------------
+
+Empty payload (~9 records per mission).  Phase transition or heartbeat
+marker.  No fields to decode.
+
+
 5. SENSOR CROSS-REFERENCE
 ================================================================================
 
@@ -587,15 +742,18 @@ Decoded values were verified against:
     record does not appear to contain per-bin velocity profiles; those are
     likely in the separate .ADC files.
 
-  - Navigation record (0x044e): 8 bytes at offsets 26-33 are undecoded
-    (likely heading and/or bearing fields).
+  - Navigation record (0x044e): Offset 26 is pitch (confirmed via ADCP
+    cross-validation). Offset 42 is an unidentified float (mean ~-7,
+    range ±23). Offset 24 is the altimeter max range config (constant 10),
+    not actual altitude. Offset 30 is constant 90.0 (config parameter).
+    Offset 38 is a byte-identical duplicate of the depth field at offset 34.
 
   - Sidescan record (0x03f7): No actual sonar imagery. Full-resolution
     sidescan data was logged separately and is not in this dataset.
 
-  - ECO record (0x043e): Channel assignments at offsets 41 and 45 are
-    uncertain. The chlorophyll proxy at offset 49 may be a derived value
-    or a different channel than Chl-a.
+  - ECO record (0x043e): Offset 45 is now decoded as Beta650 (1/m/sr).
+    The chlorophyll proxy at offset 49 may be a derived value or a
+    different channel than Chl-a.
 
   - GPS record (0x03f9): Internal structure beyond lat/lon is only
     partially decoded.
@@ -609,16 +767,75 @@ Decoded values were verified against:
   - Battery Cell Data record (0x0413): The scaling factor for the 7-cell
     ADC count readings (offsets 38-51) has not been determined.
 
-  - Eight record types remain entirely undecoded (see Section 3 "Unknown"
-    table). These likely include fin/control surface angles (0x0415),
-    housing temperature (0x040e), and various event markers.
+  - Compass Calibration record (0x0415): Offsets 8, 12, 32, 36 are decoded
+    but their physical meaning is uncertain (possibly raw magnetometer
+    readings or motor-related metrics — they are highly correlated but do
+    not correspond to heading values).
+
+  - Energy Monitor record (0x0402): Behavior differs between missions.
+    On 130906 it acts as a simple energy counter; on 130907 the capacity
+    field cycles and energy goes negative.  Per-bank vs whole-vehicle
+    interpretation is uncertain.
+
+  - DVL Status (0x040b) and Subsystem Mode (0x0408): Internal structure
+    only partially understood; logged as raw hex.
+
+  - YSI CTD record (0x041d): The float at offset 20 has range 0.02-42
+    with median ~4 when submerged, but does NOT correlate with nav depth
+    (r = -0.07).  Its physical meaning is undetermined.
 
   - Checksum algorithm is not determined. The uint16 at header offset 2
     is believed to be a checksum but the specific algorithm (CRC16,
     Fletcher, sum, etc.) has not been determined.
 
 
-8. FILE INVENTORY
+8. FIELD CONFIDENCE SUMMARY
+================================================================================
+
+  Each decoded field is rated by the strength of evidence for its identity:
+
+  HIGH   — Cross-validated against an independent source (ADCP data, .ini
+           config, Seabird vs YSI CTD, haversine distances, UNESCO formula)
+           or structurally self-evident (lat/lon, timestamps, ASCII strings).
+  MEDIUM — Plausible interpretation based on value range and context, but
+           not independently confirmed.
+  LOW    — Speculative; value is decoded but physical meaning is uncertain.
+  UNDECODED — Explicitly unknown; stored as raw or labeled "undecoded".
+
+  Record Type                  HIGH   MED   LOW   UNDECODED   Total Fields
+  ---------------------------  -----  ----  ----  ----------  ------------
+  Navigation (0x044e)            7     0     0       1             8
+  YSI CTD (0x041d)               6     0     0       1             7
+  Seabird CTD (0x040a)           6     1     0       0             7
+  ADCP/DVL (0x03e8)             12     2     3       0            17
+  Sidescan (0x03f7)              4     1     0       0             5
+  Wetlabs ECO BB2F (0x043e)      9     1     0       0            10
+  GPS/Acoustic Nav (0x03f9)      2     1     0       0             3
+  Nav/Acoustic (0x041a)          4     0     0       0             4
+  Acoustic Nav Fix (0x041f)      5     1     0       0             6
+  Battery Status (0x0412)        6     3     0       0             9
+  Battery Cell Data (0x0413)     3     2     1       0             6
+  Objective Navigation (0x03f1)  10    2     0       0            12
+  Compass Calibration (0x0415)   5     2     4       0            11
+  Housing Temperature (0x040e)   2     2     0       0             4
+  Energy Monitor (0x0402)        1     2     1       0             4
+  DVL Status (0x040b)            0     0     0       1             1
+  Subsystem Mode (0x0408)        0     0     0       1             1
+  Startup Flag (0x0446)          1     1     0       0             2
+  Event Marker (0x03ef)          —     —     —       —             0
+  ---------------------------  -----  ----  ----  ----------  ------------
+  TOTAL                         ~93   ~21    ~9      ~4          ~127
+
+  String/config records (Vehicle Name, Vehicle Info, Manufacturer Info,
+  Diagnostic Log, Acoustic Modem Log, Mission Modes, Mission Legs, Sensor
+  Names, Sensor Types, Sensor Display Config, Data Channels, Waypoints,
+  ECO Calibration) are all HIGH confidence — their content is self-documenting
+  ASCII text cross-referenced against .ini config files.
+
+  Overall: ~73% HIGH, ~17% MEDIUM, ~7% LOW, ~3% UNDECODED.
+
+
+9. FILE INVENTORY
 ================================================================================
 
   Path                                 Size      Records    Duration

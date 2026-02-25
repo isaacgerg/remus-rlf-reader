@@ -95,7 +95,14 @@ REC_ECO_CAL       = 0x043d  # ECO BB2F sensor channel calibration
 REC_ACOUSTIC_FIX  = 0x041f  # Acoustic transponder navigation fix
 REC_BATTERY_STATUS = 0x0412 # Smart battery status (voltages, chemistry)
 REC_BATTERY_CELLS  = 0x0413 # Smart battery cell-level data
-REC_UNK_0402      = 0x0402
+REC_OBJ_NAV       = 0x03f1  # Objective Navigation (mission leg progress)
+REC_COMPASS_CAL   = 0x0415  # Compass Calibration
+REC_HOUSING_TEMP  = 0x040e  # Housing Temperature
+REC_ENERGY_MON    = 0x0402  # Energy Monitor
+REC_DVL_STATUS    = 0x040b  # DVL Status
+REC_SUBSYS_MODE   = 0x0408  # Subsystem Mode
+REC_STARTUP_FLAG  = 0x0446  # Startup Flag
+REC_EVENT_MARKER  = 0x03ef  # Event Marker
 
 RECORD_NAMES = {
     REC_NAV:           'Navigation',
@@ -122,7 +129,14 @@ RECORD_NAMES = {
     REC_ACOUSTIC_FIX:  'Acoustic Nav Fix',
     REC_BATTERY_STATUS: 'Battery Status',
     REC_BATTERY_CELLS:  'Battery Cell Data',
-    REC_UNK_0402:      'Unknown 0x0402',
+    REC_OBJ_NAV:       'Objective Navigation',
+    REC_COMPASS_CAL:   'Compass Calibration',
+    REC_HOUSING_TEMP:  'Housing Temperature',
+    REC_ENERGY_MON:    'Energy Monitor',
+    REC_DVL_STATUS:    'DVL Status',
+    REC_SUBSYS_MODE:   'Subsystem Mode',
+    REC_STARTUP_FLAG:  'Startup Flag',
+    REC_EVENT_MARKER:  'Event Marker',
 }
 
 # Sentinel value used by MSTL sidescan for invalid data
@@ -188,9 +202,12 @@ def decode_nav(payloads):
     off  8: float64 LE  Longitude (degrees E, negative = W)
     off 16: uint32 LE   Timestamp (ms since midnight UTC)
     off 20: float32 LE  Speed (m/s)
-    off 24: uint16 LE   Altitude (m, saturated at altimeter max range)
+    off 24: uint16 LE   Altimeter max range config (constant 10, from Imagenex 852 settings)
+    off 26: float32 LE  Pitch (degrees, confirmed via ADCP cross-validation)
+    off 30: float32 LE  (constant 90.0 — altimeter config parameter)
     off 34: float32 LE  Vehicle depth below surface (m)
-    off 42: float32 LE  Pitch (degrees)
+    off 38: float32 LE  (depth duplicate — byte-identical to off 34)
+    off 42: float32 LE  Undecoded float (mean ~-7, range ±23; not pitch/roll/depth)
     """
     N = len(payloads)
     out = {
@@ -198,18 +215,20 @@ def decode_nav(payloads):
         'lon':    np.empty(N, dtype=np.float64),
         'ts_raw': np.empty(N, dtype=np.uint32),
         'speed':  np.empty(N, dtype=np.float32),
-        'alt_u16': np.empty(N, dtype=np.uint16),
-        'depth':  np.empty(N, dtype=np.float32),
+        'alt_max_range': np.empty(N, dtype=np.uint16),
         'pitch':  np.empty(N, dtype=np.float32),
+        'depth':  np.empty(N, dtype=np.float32),
+        'undecoded_f42': np.empty(N, dtype=np.float32),
     }
     for i, p in enumerate(payloads):
         out['lat'][i]    = struct.unpack_from('<d', p, 0)[0]
         out['lon'][i]    = struct.unpack_from('<d', p, 8)[0]
         out['ts_raw'][i] = struct.unpack_from('<I', p, 16)[0]
         out['speed'][i]  = struct.unpack_from('<f', p, 20)[0]
-        out['alt_u16'][i] = struct.unpack_from('<H', p, 24)[0]
+        out['alt_max_range'][i] = struct.unpack_from('<H', p, 24)[0]
+        out['pitch'][i]  = struct.unpack_from('<f', p, 26)[0]
         out['depth'][i]  = struct.unpack_from('<f', p, 34)[0]
-        out['pitch'][i]  = struct.unpack_from('<f', p, 42)[0]
+        out['undecoded_f42'][i] = struct.unpack_from('<f', p, 42)[0]
     out['t_hrs'] = unwrap_timestamps(out['ts_raw'])
     return out
 
@@ -222,6 +241,7 @@ def decode_ctd_ysi(payloads):
     off  0: float64 LE  Latitude (degrees)
     off  8: float64 LE  Longitude (degrees)
     off 16: uint32 LE   Timestamp (ms since midnight UTC)
+    off 20: float32 LE  Unknown float (range 0.02-42; median ~4 when submerged)
     off 24: float32 LE  Conductivity (mS/cm)
     off 28: float32 LE  Temperature (deg C)
     off 32: float32 LE  Salinity (PSU)
@@ -232,19 +252,21 @@ def decode_ctd_ysi(payloads):
         'lat':          np.empty(N, dtype=np.float64),
         'lon':          np.empty(N, dtype=np.float64),
         'ts_raw':       np.empty(N, dtype=np.uint32),
+        'undecoded_f20': np.empty(N, dtype=np.float32),
         'conductivity': np.empty(N, dtype=np.float32),
         'temperature':  np.empty(N, dtype=np.float32),
         'salinity':     np.empty(N, dtype=np.float32),
         'sound_speed':  np.empty(N, dtype=np.float32),
     }
     for i, p in enumerate(payloads):
-        out['lat'][i]          = struct.unpack_from('<d', p, 0)[0]
-        out['lon'][i]          = struct.unpack_from('<d', p, 8)[0]
-        out['ts_raw'][i]       = struct.unpack_from('<I', p, 16)[0]
-        out['conductivity'][i] = struct.unpack_from('<f', p, 24)[0]
-        out['temperature'][i]  = struct.unpack_from('<f', p, 28)[0]
-        out['salinity'][i]     = struct.unpack_from('<f', p, 32)[0]
-        out['sound_speed'][i]  = struct.unpack_from('<f', p, 36)[0]
+        out['lat'][i]           = struct.unpack_from('<d', p, 0)[0]
+        out['lon'][i]           = struct.unpack_from('<d', p, 8)[0]
+        out['ts_raw'][i]        = struct.unpack_from('<I', p, 16)[0]
+        out['undecoded_f20'][i] = struct.unpack_from('<f', p, 20)[0]
+        out['conductivity'][i]  = struct.unpack_from('<f', p, 24)[0]
+        out['temperature'][i]   = struct.unpack_from('<f', p, 28)[0]
+        out['salinity'][i]      = struct.unpack_from('<f', p, 32)[0]
+        out['sound_speed'][i]   = struct.unpack_from('<f', p, 36)[0]
     out['t_hrs'] = unwrap_timestamps(out['ts_raw'])
     return out
 
@@ -430,6 +452,7 @@ def decode_eco(payloads):
     off 33: float32 LE  Beta470 derived (1/m/sr, ~0.001)
     off 37: float32 LE  Ref650 (raw counts, ~719)
     off 41: float32 LE  Lambda650 / signal counts (~160)
+    off 45: float32 LE  Beta650 derived (1/m/sr, ~0.0002)
     off 49: float32 LE  Chlorophyll proxy (derived, ~-0.1)
     off 53: float32 LE  Thermistor (raw counts, ~526)
 
@@ -447,6 +470,7 @@ def decode_eco(payloads):
         'beta470':     np.empty(N, dtype=np.float32),
         'ref650':      np.empty(N, dtype=np.float32),
         'lambda650':   np.empty(N, dtype=np.float32),
+        'beta650':     np.empty(N, dtype=np.float32),
         'chlorophyll': np.empty(N, dtype=np.float32),
         'thermistor':  np.empty(N, dtype=np.float32),
     }
@@ -460,6 +484,7 @@ def decode_eco(payloads):
         out['beta470'][i]     = struct.unpack_from('<f', p, 33)[0]
         out['ref650'][i]      = struct.unpack_from('<f', p, 37)[0]
         out['lambda650'][i]   = struct.unpack_from('<f', p, 41)[0]
+        out['beta650'][i]    = struct.unpack_from('<f', p, 45)[0]
         out['chlorophyll'][i] = struct.unpack_from('<f', p, 49)[0]
         out['thermistor'][i]  = struct.unpack_from('<f', p, 53)[0]
     out['t_hrs'] = unwrap_timestamps(out['ts_raw'])
@@ -1025,6 +1050,243 @@ def decode_battery_cells(payloads):
     return records
 
 
+def decode_objective_nav(payloads):
+    """Decode Objective Navigation records (0x03f1, 53 bytes).
+
+    Real-time mission leg progress.  Each record tracks from-waypoint to
+    to-waypoint navigation for the current objective.
+
+    Fields (verified by binary analysis)
+    ------
+    off  0: uint8       Leg index (0-45, sequential then cycling)
+    off  2: uint16 LE   Transit time estimate (seconds)
+    off  4: uint16 LE   Leg distance estimate (meters, approximate — 5-15%
+                         larger than haversine distance between FROM/TO)
+    off  6: float64 LE  FROM latitude (degrees N)
+    off 14: float64 LE  FROM longitude (degrees E)
+    off 22: float64 LE  TO latitude (degrees N)
+    off 30: float64 LE  TO longitude (degrees E)
+    off 38: float32 LE  Commanded RPM (1736 or 1929)
+    off 42: float32 LE  Commanded speed (m/s, typically 0 or 4)
+    off 46: uint8       Mission mode index (cross-refs Mission Modes 0x03ee)
+    off 48: uint8       Objective sub-type
+    off 50: uint16 LE   Depth setpoint (dm, e.g. 40 = 4.0 m)
+    off 52: uint8       Active flag (0=startup, 1=executing)
+
+    Verification: FROM/TO positions are valid Makua Beach lat/lon; mode
+    indices {11,13,14,15} map to 'Surface','Compass cal','Navigate',
+    'Navigate rows' in the Mission Modes table; commanded RPM and speed
+    are physically reasonable for REMUS-100.
+    """
+    N = len(payloads)
+    out = {
+        'leg_index':      np.empty(N, dtype=np.uint8),
+        'transit_time_s': np.empty(N, dtype=np.uint16),
+        'leg_dist_m':     np.empty(N, dtype=np.uint16),
+        'from_lat':       np.empty(N, dtype=np.float64),
+        'from_lon':       np.empty(N, dtype=np.float64),
+        'to_lat':         np.empty(N, dtype=np.float64),
+        'to_lon':         np.empty(N, dtype=np.float64),
+        'cmd_rpm':        np.empty(N, dtype=np.float32),
+        'cmd_speed':      np.empty(N, dtype=np.float32),
+        'mode_index':     np.empty(N, dtype=np.uint8),
+        'obj_subtype':    np.empty(N, dtype=np.uint8),
+        'depth_setpt_dm': np.empty(N, dtype=np.uint16),
+        'active':         np.empty(N, dtype=np.uint8),
+    }
+    for i, p in enumerate(payloads):
+        out['leg_index'][i]      = p[0]
+        out['transit_time_s'][i] = struct.unpack_from('<H', p, 2)[0]
+        out['leg_dist_m'][i]     = struct.unpack_from('<H', p, 4)[0]
+        out['from_lat'][i]       = struct.unpack_from('<d', p, 6)[0]
+        out['from_lon'][i]       = struct.unpack_from('<d', p, 14)[0]
+        out['to_lat'][i]         = struct.unpack_from('<d', p, 22)[0]
+        out['to_lon'][i]         = struct.unpack_from('<d', p, 30)[0]
+        out['cmd_rpm'][i]        = struct.unpack_from('<f', p, 38)[0]
+        out['cmd_speed'][i]      = struct.unpack_from('<f', p, 42)[0]
+        out['mode_index'][i]     = p[46]
+        out['obj_subtype'][i]    = p[48]
+        out['depth_setpt_dm'][i] = struct.unpack_from('<H', p, 50)[0]
+        out['active'][i]         = p[52]
+    return out
+
+
+def decode_compass_cal(payloads):
+    """Decode Compass Calibration records (0x0415, 48 bytes).
+
+    Compass bias measurement data logged during calibration.  Reference
+    headings at offset 4 exactly match the .ini compass bias table entries
+    (254.8, 95.0, 275.0, 185.0, 5.0, 74.8 on 130906).
+
+    Fields (verified by binary analysis)
+    ------
+    off  2: uint16 LE   Measurement counter (1-N per heading, resets each)
+    off  4: float32 LE  Reference heading (from .ini bias table, degrees)
+    off  8: float32 LE  Sensor reading #1 (range 100-290; NOT heading — corr
+                         0.87 with RPM-like field @32; possibly magnetometer)
+    off 12: float32 LE  Sensor reading #2 (similar to #1)
+    off 16: float32 LE  Measured heading (degrees, clusters near ref heading)
+    off 20: float32 LE  Corrected heading (degrees, clusters near ref heading)
+    off 24: float32 LE  Heading error #1 (matches .ini bias corrections ±0.5°)
+    off 28: float32 LE  Heading error #2 (secondary error estimate)
+    off 32: float32 LE  Sensor/motor metric (range 1000-3900, corr 0.93 with @36)
+    off 36: float32 LE  Sensor/motor metric (range 88-326, corr 0.87 with @8)
+    off 40: float32 LE  Depth (m, ~7-11 during calibration)
+    off 44: float32 LE  Scale/valid flag (constant 1.0)
+
+    Verification: Mean heading errors by reference heading agree with .ini
+    bias corrections: 254.8°→-1.05 (ini:-1.0), 95.0°→-1.28 (ini:-1.1),
+    275.0°→+0.38 (ini:+0.5), 185.0°→+0.07 (ini:+0.3), 5.0°→-0.66
+    (ini:-0.7), 74.8°→-2.03 (ini:-1.9).
+    """
+    N = len(payloads)
+    out = {
+        'counter':        np.empty(N, dtype=np.uint16),
+        'ref_heading':    np.empty(N, dtype=np.float32),
+        'sensor1':        np.empty(N, dtype=np.float32),
+        'sensor2':        np.empty(N, dtype=np.float32),
+        'meas_heading':   np.empty(N, dtype=np.float32),
+        'corr_heading':   np.empty(N, dtype=np.float32),
+        'heading_err1':   np.empty(N, dtype=np.float32),
+        'heading_err2':   np.empty(N, dtype=np.float32),
+        'motor_metric1':  np.empty(N, dtype=np.float32),
+        'motor_metric2':  np.empty(N, dtype=np.float32),
+        'depth':          np.empty(N, dtype=np.float32),
+        'valid_flag':     np.empty(N, dtype=np.float32),
+    }
+    for i, p in enumerate(payloads):
+        out['counter'][i]       = struct.unpack_from('<H', p, 2)[0]
+        out['ref_heading'][i]   = struct.unpack_from('<f', p, 4)[0]
+        out['sensor1'][i]       = struct.unpack_from('<f', p, 8)[0]
+        out['sensor2'][i]       = struct.unpack_from('<f', p, 12)[0]
+        out['meas_heading'][i]  = struct.unpack_from('<f', p, 16)[0]
+        out['corr_heading'][i]  = struct.unpack_from('<f', p, 20)[0]
+        out['heading_err1'][i]  = struct.unpack_from('<f', p, 24)[0]
+        out['heading_err2'][i]  = struct.unpack_from('<f', p, 28)[0]
+        out['motor_metric1'][i] = struct.unpack_from('<f', p, 32)[0]
+        out['motor_metric2'][i] = struct.unpack_from('<f', p, 36)[0]
+        out['depth'][i]         = struct.unpack_from('<f', p, 40)[0]
+        out['valid_flag'][i]    = struct.unpack_from('<f', p, 44)[0]
+    return out
+
+
+def decode_housing_temp(payloads):
+    """Decode Housing Temperature records (0x040e, 48 bytes).
+
+    Electronics housing temperature with a sliding FIFO window of compass
+    error history.
+
+    Fields (verified by binary analysis)
+    ------
+    off  0: float32 LE  Compass heading correction (signed, ±16°)
+    off  4: float32 LE  Compass bias drift (negative, -0.4 to -5.7)
+    off  8: float32 LE  Housing temperature (°C, ~30°C; stable across missions)
+    off 12: float32 LE  Newest FIFO entry (compass error magnitude)
+    off 16-44: float32[8]  FIFO history (right-shifting: @16[i]==@20[i+1],
+                            verified 266/266 exact matches on 130906,
+                            360/361 on 130907)
+
+    Notes: New values enter at offset 12 and shift RIGHT through offsets
+    16→20→24→...→44, with the oldest value falling off at 44.
+    """
+    N = len(payloads)
+    out = {
+        'heading_correction': np.empty(N, dtype=np.float32),
+        'bias_drift':         np.empty(N, dtype=np.float32),
+        'housing_temp':       np.empty(N, dtype=np.float32),
+        'compass_err_fifo':   np.empty((N, 9), dtype=np.float32),
+    }
+    for i, p in enumerate(payloads):
+        out['heading_correction'][i] = struct.unpack_from('<f', p, 0)[0]
+        out['bias_drift'][i]         = struct.unpack_from('<f', p, 4)[0]
+        out['housing_temp'][i]       = struct.unpack_from('<f', p, 8)[0]
+        for j in range(9):
+            out['compass_err_fifo'][i, j] = struct.unpack_from('<f', p, 12 + j * 4)[0]
+    return out
+
+
+def decode_energy_monitor(payloads):
+    """Decode Energy Monitor records (0x0402, 13 bytes).
+
+    Battery energy consumption tracking.
+
+    Fields (verified by binary analysis)
+    ------
+    off  0: uint8       Constant 7 (cell count or battery bank count)
+    off  1: float32 LE  Battery capacity (Wh; 1235.86 constant on 130906,
+                         but cycles through 613/931/1236 on 130907 —
+                         possibly per-bank capacity)
+    off  5: float32 LE  Energy metric (Wh; monotonically increasing 276→1010
+                         on 130906, but goes negative on 130907)
+    off  9: float32 LE  Status metric (mostly 830.36 on 130906; varies 0-886
+                         on 130907)
+
+    Note: The capacity field likely represents total available capacity of
+    N active battery packs at ~309 Wh each: 1235.86/4=309.0, 930.69/3=
+    310.2, 613.14/2=306.6 (verified across 130906-130908).  When a pack
+    depletes, capacity drops.  On 130906 all 4 packs stayed active
+    (constant 1235.86); on 130907/130908 packs dropped out mid-mission.
+    """
+    N = len(payloads)
+    out = {
+        'cell_count':     np.empty(N, dtype=np.uint8),
+        'capacity_wh':    np.empty(N, dtype=np.float32),
+        'energy_wh':      np.empty(N, dtype=np.float32),
+        'status_metric':  np.empty(N, dtype=np.float32),
+    }
+    for i, p in enumerate(payloads):
+        out['cell_count'][i]    = p[0]
+        out['capacity_wh'][i]   = struct.unpack_from('<f', p, 1)[0]
+        out['energy_wh'][i]     = struct.unpack_from('<f', p, 5)[0]
+        out['status_metric'][i] = struct.unpack_from('<f', p, 9)[0]
+    return out
+
+
+def decode_dvl_status(payloads):
+    """Decode DVL Status records (0x040b, 60 bytes).
+
+    ADCP/DVL subsystem internal status/diagnostics.  First 22 bytes are
+    mostly zeros (byte 11 = constant 8).  Active region at bytes 23-50
+    with structured status data.  Internal format not fully determined.
+    """
+    records = []
+    for p in payloads:
+        records.append({'raw_hex': p.hex()})
+    return records
+
+
+def decode_subsystem_mode(payloads):
+    """Decode Subsystem Mode records (0x0408, 6 bytes).
+
+    Sparse mode/status flag register.  Only two patterns observed across
+    the entire 130906 mission:
+        04 b0 80 82 05 00  (27 occurrences — active mode)
+        04 a0 80 00 00 00  (10 occurrences — idle/startup mode)
+    """
+    records = []
+    for p in payloads:
+        records.append({'raw_hex': p.hex()})
+    return records
+
+
+def decode_startup_flag(payloads):
+    """Decode Startup Flag records (0x0446, 4 bytes).
+
+    Constant payload 01 00 00 00.  Logged exactly 10 times per mission
+    (same count as Vehicle Name records).  Startup/initialization marker.
+    """
+    return {'count': len(payloads), 'value': 1}
+
+
+def decode_event_marker(payloads):
+    """Decode Event Marker records (0x03ef, 0 bytes).
+
+    Empty payload (~9 records per mission).  Phase transition or heartbeat
+    marker.
+    """
+    return {'count': len(payloads)}
+
+
 # ---------------------------------------------------------------------------
 # High-level API
 # ---------------------------------------------------------------------------
@@ -1055,6 +1317,14 @@ _DECODERS = {
     REC_ACOUSTIC_FIX:  decode_acoustic_fix,
     REC_BATTERY_STATUS: decode_battery_status,
     REC_BATTERY_CELLS:  decode_battery_cells,
+    REC_OBJ_NAV:       decode_objective_nav,
+    REC_COMPASS_CAL:   decode_compass_cal,
+    REC_HOUSING_TEMP:  decode_housing_temp,
+    REC_ENERGY_MON:    decode_energy_monitor,
+    REC_DVL_STATUS:    decode_dvl_status,
+    REC_SUBSYS_MODE:   decode_subsystem_mode,
+    REC_STARTUP_FLAG:  decode_startup_flag,
+    REC_EVENT_MARKER:  decode_event_marker,
 }
 
 
