@@ -41,9 +41,16 @@ Type     Dec   Name                  Payload  Approx Rate   Description
 0x03f7   1015  Sidescan (900 kHz)    55 B     ~1.3 Hz       Lat, lon, altitude, depth, heading
 0x043e   1086  Wetlabs ECO BB2F      57 B     ~1 Hz         Optical backscatter, chlorophyll
 0x03f9   1017  GPS / Acoustic Nav    59 B     varies        Position fixes, transponder IDs
-0x0424   1060  Unknown               37 B     ~0.16 Hz      Housekeeping / status
-0x041a   1050  Unknown               57 B     ~0.15 Hz      Housekeeping / status
-0x0402   1026  Unknown               13 B     ~0.06 Hz      Housekeeping / status
+0x0424   1060  Acoustic Modem Log    37 B     ~0.16 Hz      Inbound/outbound acoustic messages
+0x041a   1050  Nav/Acoustic          57 B     ~0.15 Hz      Heading, SoS, position (DVL + compass)
+0x0402   1026  Energy Monitor        13 B     ~0.06 Hz      Battery capacity and energy consumed
+0x03f1   1009  Objective Navigation  53 B     ~0.03 Hz      Leg progress: FROM/TO, RPM, speed, mode
+0x0415   1045  Compass Calibration   48 B     ~0.01 Hz      Heading bias measurements per ref heading
+0x040e   1038  Housing Temperature   48 B     ~0.02 Hz      Housing temp and compass error FIFO
+0x040b   1035  DVL Status            60 B     sparse        ADCP/DVL subsystem diagnostics (raw hex)
+0x0408   1032  Subsystem Mode         6 B     sparse        Mode/status flag register (raw hex)
+0x0446   1094  Startup Flag           4 B     startup       Constant marker (10 per mission)
+0x03ef   1007  Event Marker           0 B     sparse        Empty-payload phase transition marker
 
 SENSOR CROSS-REFERENCE (from 130906.ini config)
 ------------------------------------------------
