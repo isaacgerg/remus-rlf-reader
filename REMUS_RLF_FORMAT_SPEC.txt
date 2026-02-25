@@ -26,7 +26,7 @@ Each record begins with an 8-byte header:
     Offset  Size  Type        Field
     ------  ----  ----------  ------------------------------------------
     0       2     uint8[2]    Magic bytes: 0xEB 0x90
-    2       2     uint16 LE   Checksum
+    2       2     uint16 LE   Checksum (signed-byte sum, see Section 7)
     4       2     uint16 LE   Record type identifier
     6       2     uint16 LE   Payload length in bytes (N)
     8       N     raw bytes   Payload data (sensor-specific structure)
@@ -784,9 +784,14 @@ Decoded values were verified against:
     with median ~4 when submerged, but does NOT correlate with nav depth
     (r = -0.07).  Its physical meaning is undetermined.
 
-  - Checksum algorithm is not determined. The uint16 at header offset 2
-    is believed to be a checksum but the specific algorithm (CRC16,
-    Fletcher, sum, etc.) has not been determined.
+  - Checksum algorithm (SOLVED): The uint16 LE at header offset 2 is the
+    sum of all bytes in the type (2) + length (2) + payload (N) fields,
+    where each byte is treated as signed int8 (values 128-255 map to
+    -128 to -1) and the result is stored as uint16.  Equivalently:
+        checksum = sum(b if b < 128 else b - 256 for b in blob) & 0xFFFF
+    Verified on 1,910,049 / 1,910,054 records across all four mission
+    files.  The 5 failures are confirmed data corruption (e.g., a 6-byte
+    record type 0x0408 with recorded payload length 60,166).
 
 
 8. FIELD CONFIDENCE SUMMARY
