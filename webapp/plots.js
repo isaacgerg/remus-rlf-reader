@@ -313,10 +313,12 @@ function plotAttitude(data) {
   const t0 = nav.t_hrs[0], t1 = nav.t_hrs[nav.t_hrs.length - 1];
   const t = [];
   if (n <= 1) { t.push(t0); } else { for (let i = 0; i < n; i++) t.push(t0 + (t1 - t0) * i / (n - 1)); }
+  const pit = adcp.pitch.map(v => (isFinite(v) && Math.abs(v) <= 90) ? v : null);
+  const rol = adcp.roll.map(v => (isFinite(v) && Math.abs(v) <= 90) ? v : null);
   Plotly.newPlot('plot-attitude', [
     { x: ds(t, MAX), y: ds(adcp.heading, MAX), type: 'scatter', mode: 'lines', line: { color: COLORS.navy, width: 1 }, name: 'Heading', yaxis: 'y' },
-    { x: ds(t, MAX), y: ds(adcp.pitch, MAX), type: 'scatter', mode: 'lines', line: { color: COLORS.orange, width: 1 }, name: 'Pitch', yaxis: 'y2' },
-    { x: ds(t, MAX), y: ds(adcp.roll, MAX), type: 'scatter', mode: 'lines', line: { color: COLORS.purple, width: 1 }, name: 'Roll', yaxis: 'y2' },
+    { x: ds(t, MAX), y: ds(pit, MAX), type: 'scatter', mode: 'lines', line: { color: COLORS.orange, width: 1 }, name: 'Pitch', yaxis: 'y2' },
+    { x: ds(t, MAX), y: ds(rol, MAX), type: 'scatter', mode: 'lines', line: { color: COLORS.purple, width: 1 }, name: 'Roll', yaxis: 'y2' },
   ], merge(LAYOUT_BASE, {
     title: 'Vehicle Attitude',
     xaxis: { title: 'Time (hours)' },
